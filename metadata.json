@@ -1,0 +1,6 @@
+{
+  "name": "FermeFacile Avicole",
+  "description": "Application PWA mobile-first & 100% hors-ligne pour éleveurs de poulets de chair en Afrique de l'Ouest. Suivi de lot, prophylaxie, stocks d'aliments et calcul du coût de revient.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

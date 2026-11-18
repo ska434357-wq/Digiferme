@@ -1,0 +1,171 @@
+{
+  "accounts": [
+    {
+      "id": "user-kone-01",
+      "code": "FF-TRIM-4821",
+      "farmerName": "Mamadou Koné",
+      "farmName": "Ferme Espoir Bouaké",
+      "phone": "+225 07 48 12 90 11",
+      "country": "CI",
+      "plan": "trimestriel",
+      "status": "active",
+      "paymentMethod": "wave",
+      "amountFCFA": 13500,
+      "durationDays": 90,
+      "createdAtMs": 1794478465813,
+      "expiresAtMs": 1802254465813,
+      "lastLoginAtMs": 1795006444196
+    },
+    {
+      "id": "user-diallo-02",
+      "code": "FF-MENS-9034",
+      "farmerName": "Fatou Diallo",
+      "farmName": "Aviculture Thiès",
+      "phone": "+221 77 320 45 18",
+      "country": "SN",
+      "plan": "mensuel",
+      "status": "active",
+      "paymentMethod": "orange_money",
+      "amountFCFA": 5000,
+      "durationDays": 30,
+      "createdAtMs": 1794651265813,
+      "expiresAtMs": 1797243265813
+    }
+  ],
+  "workspaces": {
+    "user-kone-01": {
+      "batches": [
+        {
+          "id": "batch-1794910465813-603",
+          "name": "Lot #01 - Ferme Espoir Bouaké",
+          "startDate": "2026-11-03",
+          "initialChicks": 300,
+          "pricePerChickFCFA": 550,
+          "breed": "Cobb 500",
+          "supplier": "Couvoir Local",
+          "targetHarvestDay": 42,
+          "targetWeightKg": 2.1,
+          "notes": "Lot initial créé avec la page éleveur.",
+          "status": "active"
+        }
+      ],
+      "activeBatchId": "batch-1794910465813-603",
+      "dailyLogs": [
+        {
+          "id": "log-batch-1794910465813-603-1",
+          "batchId": "batch-1794910465813-603",
+          "dayNumber": 14,
+          "date": "2026-11-17",
+          "mortality": 1,
+          "feedConsumedBags": 0.5,
+          "feedConsumedKg": 25,
+          "feedType": "demarrage",
+          "waterIntakeLiters": 55,
+          "averageWeightGrams": 460,
+          "temperatureCelsius": 35,
+          "symptoms": [],
+          "timestamp": 1794906865813
+        }
+      ],
+      "vaccineEvents": {},
+      "feedStock": {
+        "demarrageBags": 2,
+        "croissanceBags": 6,
+        "finitionBags": 4,
+        "bagWeightKg": 50,
+        "pricePerBagFCFA": {
+          "demarrage": 18500,
+          "croissance": 17800,
+          "finition": 17200
+        }
+      },
+      "cashFlow": [
+        {
+          "id": "cf-1794910465813",
+          "batchId": "batch-1794910465813-603",
+          "type": "depense",
+          "category": "poussin",
+          "label": "300 Poussins Cobb 500",
+          "amountFCFA": 165000,
+          "quantity": 300,
+          "paymentMethod": "wave",
+          "date": "2026-11-03",
+          "timestamp": 1793700865813
+        }
+      ],
+      "country": "CI",
+      "isAudioEnabled": true,
+      "heatAlertThreshold": 35,
+      "currentSimulatedTemp": 36,
+      "themeMode": "dark",
+      "updatedAtMs": 1794910465813
+    },
+    "user-diallo-02": {
+      "batches": [
+        {
+          "id": "batch-1794910465813-932",
+          "name": "Lot #01 - Aviculture Thiès",
+          "startDate": "2026-11-03",
+          "initialChicks": 300,
+          "pricePerChickFCFA": 550,
+          "breed": "Cobb 500",
+          "supplier": "Couvoir Local",
+          "targetHarvestDay": 42,
+          "targetWeightKg": 2.1,
+          "notes": "Lot initial créé avec la page éleveur.",
+          "status": "active"
+        }
+      ],
+      "activeBatchId": "batch-1794910465813-932",
+      "dailyLogs": [
+        {
+          "id": "log-batch-1794910465813-932-1",
+          "batchId": "batch-1794910465813-932",
+          "dayNumber": 14,
+          "date": "2026-11-17",
+          "mortality": 1,
+          "feedConsumedBags": 0.5,
+          "feedConsumedKg": 25,
+          "feedType": "demarrage",
+          "waterIntakeLiters": 55,
+          "averageWeightGrams": 460,
+          "temperatureCelsius": 35,
+          "symptoms": [],
+          "timestamp": 1794906865813
+        }
+      ],
+      "vaccineEvents": {},
+      "feedStock": {
+        "demarrageBags": 2,
+        "croissanceBags": 6,
+        "finitionBags": 4,
+        "bagWeightKg": 50,
+        "pricePerBagFCFA": {
+          "demarrage": 18500,
+          "croissance": 17800,
+          "finition": 17200
+        }
+      },
+      "cashFlow": [
+        {
+          "id": "cf-1794910465813",
+          "batchId": "batch-1794910465813-932",
+          "type": "depense",
+          "category": "poussin",
+          "label": "300 Poussins Cobb 500",
+          "amountFCFA": 165000,
+          "quantity": 300,
+          "paymentMethod": "wave",
+          "date": "2026-11-03",
+          "timestamp": 1793700865813
+        }
+      ],
+      "country": "SN",
+      "isAudioEnabled": true,
+      "heatAlertThreshold": 35,
+      "currentSimulatedTemp": 36,
+      "themeMode": "dark",
+      "updatedAtMs": 1794910465813
+    }
+  }
+}

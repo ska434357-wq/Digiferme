@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#166534" />
+      <stop offset="100%" stop-color="#14532d" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.3" />
+    </filter>
+  </defs>
+  
+  <!-- Outer Rounded Container -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  
+  <!-- Subtle circular sun aura -->
+  <circle cx="256" cy="240" r="160" fill="#fef08a" opacity="0.15" />
+  
+  <!-- Stylized Chicken / Rooster Icon -->
+  <g filter="url(#shadow)">
+    <!-- Body -->
+    <path d="M190 340 C140 330 110 270 125 215 C132 190 152 175 175 170 C195 140 230 110 275 110 C310 110 335 130 350 160 C395 175 420 220 405 270 C390 320 340 350 280 350 C235 350 205 345 190 340 Z" fill="#ffffff" />
+    
+    <!-- Comb (Crête) -->
+    <path d="M260 115 C260 90 280 80 295 95 C305 75 330 80 330 102 C345 90 365 105 355 125 Z" fill="#ef4444" />
+    
+    <!-- Wattle (Barbillon) -->
+    <path d="M345 185 C360 190 365 210 350 220 C340 225 335 210 340 195 Z" fill="#ef4444" />
+    
+    <!-- Beak (Bec) -->
+    <polygon points="350,165 390,175 350,190" fill="url(#goldGrad)" />
+    
+    <!-- Eye -->
+    <circle cx="325" cy="155" r="7" fill="#1e293b" />
+    <circle cx="327" cy="153" r="2.5" fill="#ffffff" />
+    
+    <!-- Wing accent -->
+    <path d="M195 240 C215 210 270 205 295 245 C305 265 290 300 240 310 C200 315 185 270 195 240 Z" fill="#e2e8f0" />
+    <path d="M210 250 C235 235 270 235 280 265 C265 290 230 295 210 275 Z" fill="#cbd5e1" opacity="0.6" />
+    
+    <!-- Feed grain accent / sprout -->
+    <path d="M256 385 C230 385 220 395 220 405 C240 405 256 395 256 385 Z" fill="url(#goldGrad)" />
+    <path d="M256 385 C282 385 292 395 292 405 C272 405 256 395 256 385 Z" fill="#22c55e" />
+  </g>
+</svg>

@@ -1,0 +1,329 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================
+    // Global Hardened Primitives
+    // =========================================================
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isVerified() && (
+        request.auth.token.email == 'ska434357@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidCountry(val) {
+      return val in ['CI', 'SN', 'BF', 'ML'];
+    }
+
+    function isValidPlan(val) {
+      return val in ['mensuel', 'trimestriel', 'annuel'];
+    }
+
+    function isValidPaymentMethod(val) {
+      return val in ['wave', 'orange_money', 'mtn_momo', 'moov_money', 'cash'];
+    }
+
+    // =========================================================
+    // Entity Validation Blueprints
+    // =========================================================
+    function isValidAdminUser(data, adminId) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'createdAt']) &&
+             data.keys().hasOnly(['uid', 'email', 'role', 'createdAt']) &&
+             isValidId(data.uid) &&
+             data.uid == adminId &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+             data.role == 'super_admin' &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidAccessCode(data) {
+      return data.keys().hasAll([
+               'code', 'userId', 'ownerUid', 'farmerName', 'farmName', 'phone',
+               'country', 'plan', 'status', 'paymentMethod', 'amountFCFA',
+               'durationDays', 'expiresAtMs', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'code', 'userId', 'ownerUid', 'farmerName', 'farmName', 'phone',
+               'country', 'plan', 'status', 'paymentMethod', 'amountFCFA',
+               'durationDays', 'expiresAtMs', 'createdAt', 'updatedAt'
+             ]) &&
+             data.code is string && data.code.size() >= 4 && data.code.size() <= 32 && data.code.matches('^[A-Z0-9\\-]+$') &&
+             isValidId(data.userId) &&
+             isValidId(data.ownerUid) &&
+             data.farmerName is string && data.farmerName.size() >= 2 && data.farmerName.size() <= 120 &&
+             data.farmName is string && data.farmName.size() >= 2 && data.farmName.size() <= 120 &&
+             data.phone is string && data.phone.size() >= 6 && data.phone.size() <= 30 &&
+             isValidCountry(data.country) &&
+             isValidPlan(data.plan) &&
+             data.status in ['active', 'suspended', 'expired'] &&
+             isValidPaymentMethod(data.paymentMethod) &&
+             data.amountFCFA is number && data.amountFCFA >= 0 &&
+             data.durationDays is int && data.durationDays > 0 && data.durationDays <= 366 &&
+             data.expiresAtMs is int && data.expiresAtMs > 0 &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidUserWorkspace(data, workspaceId) {
+      return data.keys().hasAll([
+               'workspaceId', 'ownerUid', 'accessCode', 'farmerName', 'farmName',
+               'country', 'themeMode', 'isAudioEnabled', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'workspaceId', 'ownerUid', 'accessCode', 'farmerName', 'farmName',
+               'country', 'themeMode', 'isAudioEnabled', 'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(data.workspaceId) &&
+             data.workspaceId == workspaceId &&
+             isValidId(data.ownerUid) &&
+             data.accessCode is string && data.accessCode.size() >= 4 && data.accessCode.size() <= 32 && data.accessCode.matches('^[A-Z0-9\\-]+$') &&
+             data.farmerName is string && data.farmerName.size() >= 2 && data.farmerName.size() <= 120 &&
+             data.farmName is string && data.farmName.size() >= 2 && data.farmName.size() <= 120 &&
+             isValidCountry(data.country) &&
+             data.themeMode in ['dark', 'light'] &&
+             data.isAudioEnabled is bool &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidBatchRecord(data, workspaceId, batchId) {
+      return data.keys().hasAll([
+               'id', 'workspaceId', 'ownerUid', 'name', 'startDate',
+               'initialChicks', 'pricePerChickFCFA', 'breed', 'supplier',
+               'status', 'createdAt', 'updatedAt'
+             ]) &&
+             data.keys().hasOnly([
+               'id', 'workspaceId', 'ownerUid', 'name', 'startDate',
+               'initialChicks', 'pricePerChickFCFA', 'breed', 'supplier',
+               'status', 'createdAt', 'updatedAt'
+             ]) &&
+             isValidId(data.id) &&
+             data.id == batchId &&
+             isValidId(data.workspaceId) &&
+             data.workspaceId == workspaceId &&
+             isValidId(data.ownerUid) &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 140 &&
+             data.startDate is string && data.startDate.size() >= 8 && data.startDate.size() <= 32 &&
+             data.initialChicks is int && data.initialChicks > 0 && data.initialChicks <= 100000 &&
+             data.pricePerChickFCFA is number && data.pricePerChickFCFA >= 0 &&
+             data.breed is string && data.breed.size() >= 1 && data.breed.size() <= 64 &&
+             data.supplier is string && data.supplier.size() >= 1 && data.supplier.size() <= 120 &&
+             data.status in ['active', 'completed'] &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidDailyLogRecord(data, workspaceId, logId) {
+      return data.keys().hasAll([
+               'id', 'workspaceId', 'ownerUid', 'batchId', 'dayNumber', 'date',
+               'mortality', 'feedConsumedBags', 'feedConsumedKg', 'feedType',
+               'waterIntakeLiters', 'createdAt'
+             ]) &&
+             data.keys().hasOnly([
+               'id', 'workspaceId', 'ownerUid', 'batchId', 'dayNumber', 'date',
+               'mortality', 'feedConsumedBags', 'feedConsumedKg', 'feedType',
+               'waterIntakeLiters', 'createdAt'
+             ]) &&
+             isValidId(data.id) &&
+             data.id == logId &&
+             isValidId(data.workspaceId) &&
+             data.workspaceId == workspaceId &&
+             isValidId(data.ownerUid) &&
+             isValidId(data.batchId) &&
+             data.dayNumber is int && data.dayNumber >= 0 && data.dayNumber <= 365 &&
+             data.date is string && data.date.size() >= 8 && data.date.size() <= 32 &&
+             data.mortality is int && data.mortality >= 0 && data.mortality <= 100000 &&
+             data.feedConsumedBags is number && data.feedConsumedBags >= 0 &&
+             data.feedConsumedKg is number && data.feedConsumedKg >= 0 &&
+             data.feedType in ['demarrage', 'croissance', 'finition'] &&
+             data.waterIntakeLiters is number && data.waterIntakeLiters >= 0 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidCashFlowRecord(data, workspaceId, entryId) {
+      return data.keys().hasAll([
+               'id', 'workspaceId', 'ownerUid', 'batchId', 'type', 'category',
+               'label', 'amountFCFA', 'paymentMethod', 'date', 'createdAt'
+             ]) &&
+             data.keys().hasOnly([
+               'id', 'workspaceId', 'ownerUid', 'batchId', 'type', 'category',
+               'label', 'amountFCFA', 'paymentMethod', 'date', 'createdAt'
+             ]) &&
+             isValidId(data.id) &&
+             data.id == entryId &&
+             isValidId(data.workspaceId) &&
+             data.workspaceId == workspaceId &&
+             isValidId(data.ownerUid) &&
+             isValidId(data.batchId) &&
+             data.type in ['depense', 'vente'] &&
+             data.category is string && data.category.size() >= 1 && data.category.size() <= 64 &&
+             data.label is string && data.label.size() >= 1 && data.label.size() <= 200 &&
+             data.amountFCFA is number && data.amountFCFA >= 0 &&
+             isValidPaymentMethod(data.paymentMethod) &&
+             data.date is string && data.date.size() >= 8 && data.date.size() <= 32 &&
+             data.createdAt is timestamp;
+    }
+
+    // Master Gate helper for Workspace Subcollections
+    function ownsWorkspace(workspaceId) {
+      return isVerified() &&
+             exists(/databases/$(database)/documents/workspaces/$(workspaceId)) &&
+             get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerUid == request.auth.uid;
+    }
+
+    // =========================================================
+    // Collection Rules
+    // =========================================================
+
+    // Admins collection (Super Admin only)
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && (isAdmin() || (isVerified() && request.auth.uid == adminId));
+      allow list: if isAdmin();
+      allow create: if isValidId(adminId) && isAdmin() && isValidAdminUser(incoming(), adminId) && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(adminId) && isAdmin();
+    }
+
+    // SaaS Access Codes (PII Isolated: owner or Super Admin only)
+    match /accessCodes/{codeId} {
+      allow get: if isValidId(codeId) && (isAdmin() || (isVerified() && existing().ownerUid == request.auth.uid));
+      allow list: if isAdmin() || (isVerified() && existing().ownerUid == request.auth.uid);
+      allow create: if isValidId(codeId) &&
+                    isAdmin() &&
+                    isValidAccessCode(incoming()) &&
+                    incoming().createdAt == request.time &&
+                    incoming().updatedAt == request.time;
+      allow update: if isValidId(codeId) &&
+                    isAdmin() &&
+                    isValidAccessCode(incoming()) &&
+                    incoming().code == existing().code &&
+                    incoming().userId == existing().userId &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().updatedAt == request.time &&
+                    incoming().diff(existing()).affectedKeys().hasOnly([
+                      'plan', 'status', 'expiresAtMs', 'durationDays', 'amountFCFA', 'paymentMethod', 'farmerName', 'farmName', 'phone', 'country', 'ownerUid', 'updatedAt'
+                    ]);
+      allow delete: if isValidId(codeId) && isAdmin();
+    }
+
+    // Isolated User Workspaces
+    match /workspaces/{workspaceId} {
+      allow get: if isValidId(workspaceId) && (isAdmin() || (isVerified() && existing().ownerUid == request.auth.uid));
+      allow list: if isAdmin() || (isVerified() && existing().ownerUid == request.auth.uid);
+      allow create: if isValidId(workspaceId) &&
+                    isVerified() &&
+                    isValidUserWorkspace(incoming(), workspaceId) &&
+                    (isAdmin() || incoming().ownerUid == request.auth.uid) &&
+                    incoming().createdAt == request.time &&
+                    incoming().updatedAt == request.time;
+      allow update: if isValidId(workspaceId) &&
+                    isVerified() &&
+                    isValidUserWorkspace(incoming(), workspaceId) &&
+                    incoming().workspaceId == existing().workspaceId &&
+                    incoming().ownerUid == existing().ownerUid &&
+                    incoming().accessCode == existing().accessCode &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().updatedAt == request.time &&
+                    (
+                      (
+                        isAdmin() &&
+                        incoming().diff(existing()).affectedKeys().hasOnly([
+                          'farmerName', 'farmName', 'country', 'themeMode', 'isAudioEnabled', 'updatedAt'
+                        ])
+                      ) ||
+                      (
+                        existing().ownerUid == request.auth.uid &&
+                        incoming().diff(existing()).affectedKeys().hasOnly([
+                          'farmerName', 'farmName', 'country', 'themeMode', 'isAudioEnabled', 'updatedAt'
+                        ])
+                      )
+                    );
+      allow delete: if isValidId(workspaceId) && isAdmin();
+
+      // Subcollection: Batches
+      match /batches/{batchId} {
+        allow get: if isValidId(workspaceId) && isValidId(batchId) && (isAdmin() || (isVerified() && existing().ownerUid == request.auth.uid));
+        allow list: if isAdmin() || (isVerified() && existing().ownerUid == request.auth.uid);
+        allow create: if isValidId(workspaceId) && isValidId(batchId) &&
+                      isVerified() &&
+                      isValidBatchRecord(incoming(), workspaceId, batchId) &&
+                      incoming().createdAt == request.time &&
+                      incoming().updatedAt == request.time &&
+                      (isAdmin() || (incoming().ownerUid == request.auth.uid && ownsWorkspace(workspaceId)));
+        allow update: if isValidId(workspaceId) && isValidId(batchId) &&
+                      isVerified() &&
+                      isValidBatchRecord(incoming(), workspaceId, batchId) &&
+                      incoming().id == existing().id &&
+                      incoming().workspaceId == existing().workspaceId &&
+                      incoming().ownerUid == existing().ownerUid &&
+                      incoming().createdAt == existing().createdAt &&
+                      incoming().updatedAt == request.time &&
+                      (
+                        (
+                          isAdmin() &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'status', 'updatedAt'])
+                        ) ||
+                        (
+                          existing().ownerUid == request.auth.uid &&
+                          existing().status != 'completed' &&
+                          ownsWorkspace(workspaceId) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'status', 'updatedAt'])
+                        )
+                      );
+        allow delete: if isValidId(workspaceId) && isValidId(batchId) && (isAdmin() || ownsWorkspace(workspaceId));
+      }
+
+      // Subcollection: Daily Logs
+      match /dailyLogs/{logId} {
+        allow get: if isValidId(workspaceId) && isValidId(logId) && (isAdmin() || (isVerified() && existing().ownerUid == request.auth.uid));
+        allow list: if isAdmin() || (isVerified() && existing().ownerUid == request.auth.uid);
+        allow create: if isValidId(workspaceId) && isValidId(logId) &&
+                      isVerified() &&
+                      isValidDailyLogRecord(incoming(), workspaceId, logId) &&
+                      incoming().createdAt == request.time &&
+                      (isAdmin() || (incoming().ownerUid == request.auth.uid && ownsWorkspace(workspaceId)));
+        allow update: if false;
+        allow delete: if isValidId(workspaceId) && isValidId(logId) && (isAdmin() || ownsWorkspace(workspaceId));
+      }
+
+      // Subcollection: Cash Flow
+      match /cashFlow/{entryId} {
+        allow get: if isValidId(workspaceId) && isValidId(entryId) && (isAdmin() || (isVerified() && existing().ownerUid == request.auth.uid));
+        allow list: if isAdmin() || (isVerified() && existing().ownerUid == request.auth.uid);
+        allow create: if isValidId(workspaceId) && isValidId(entryId) &&
+                      isVerified() &&
+                      isValidCashFlowRecord(incoming(), workspaceId, entryId) &&
+                      incoming().createdAt == request.time &&
+                      (isAdmin() || (incoming().ownerUid == request.auth.uid && ownsWorkspace(workspaceId)));
+        allow update: if false;
+        allow delete: if isValidId(workspaceId) && isValidId(entryId) && (isAdmin() || ownsWorkspace(workspaceId));
+      }
+    }
+  }
+}

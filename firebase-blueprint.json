@@ -1,0 +1,449 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Super admin authorization record",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "role": {
+          "type": "string",
+          "enum": ["super_admin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "AccessCode": {
+      "title": "AccessCode",
+      "description": "SaaS subscription access code managed by Super Admin",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 32,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "farmerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "farmName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 30
+        },
+        "country": {
+          "type": "string",
+          "enum": ["CI", "SN", "BF", "ML"]
+        },
+        "plan": {
+          "type": "string",
+          "enum": ["mensuel", "trimestriel", "annuel"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "suspended", "expired"]
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["wave", "orange_money", "mtn_momo", "moov_money", "cash"]
+        },
+        "amountFCFA": {
+          "type": "number"
+        },
+        "durationDays": {
+          "type": "integer"
+        },
+        "expiresAtMs": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "code",
+        "userId",
+        "ownerUid",
+        "farmerName",
+        "farmName",
+        "phone",
+        "country",
+        "plan",
+        "status",
+        "paymentMethod",
+        "amountFCFA",
+        "durationDays",
+        "expiresAtMs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserWorkspace": {
+      "title": "UserWorkspace",
+      "description": "Isolated user farm workspace settings and metadata",
+      "type": "object",
+      "properties": {
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "accessCode": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 32,
+          "pattern": "^[A-Z0-9\\-]+$"
+        },
+        "farmerName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "farmName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "country": {
+          "type": "string",
+          "enum": ["CI", "SN", "BF", "ML"]
+        },
+        "themeMode": {
+          "type": "string",
+          "enum": ["dark", "light"]
+        },
+        "isAudioEnabled": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "workspaceId",
+        "ownerUid",
+        "accessCode",
+        "farmerName",
+        "farmName",
+        "country",
+        "themeMode",
+        "isAudioEnabled",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "BatchRecord": {
+      "title": "BatchRecord",
+      "description": "Broiler poultry batch belonging to a user workspace",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "startDate": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 32
+        },
+        "initialChicks": {
+          "type": "integer"
+        },
+        "pricePerChickFCFA": {
+          "type": "number"
+        },
+        "breed": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "supplier": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "completed"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "ownerUid",
+        "name",
+        "startDate",
+        "initialChicks",
+        "pricePerChickFCFA",
+        "breed",
+        "supplier",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DailyLogRecord": {
+      "title": "DailyLogRecord",
+      "description": "Daily mortality, feed, and water log inside a workspace",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "batchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "dayNumber": {
+          "type": "integer"
+        },
+        "date": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 32
+        },
+        "mortality": {
+          "type": "integer"
+        },
+        "feedConsumedBags": {
+          "type": "number"
+        },
+        "feedConsumedKg": {
+          "type": "number"
+        },
+        "feedType": {
+          "type": "string",
+          "enum": ["demarrage", "croissance", "finition"]
+        },
+        "waterIntakeLiters": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "ownerUid",
+        "batchId",
+        "dayNumber",
+        "date",
+        "mortality",
+        "feedConsumedBags",
+        "feedConsumedKg",
+        "feedType",
+        "waterIntakeLiters",
+        "createdAt"
+      ]
+    },
+    "CashFlowRecord": {
+      "title": "CashFlowRecord",
+      "description": "Financial expense or sale entry inside a workspace",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "batchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["depense", "vente"]
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "amountFCFA": {
+          "type": "number"
+        },
+        "paymentMethod": {
+          "type": "string",
+          "enum": ["wave", "orange_money", "mtn_momo", "moov_money", "cash"]
+        },
+        "date": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 32
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "ownerUid",
+        "batchId",
+        "type",
+        "category",
+        "label",
+        "amountFCFA",
+        "paymentMethod",
+        "date",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": {
+        "$ref": "#/entities/AdminUser"
+      },
+      "description": "Authorized Super Admin accounts"
+    },
+    "/accessCodes/{codeId}": {
+      "schema": {
+        "$ref": "#/entities/AccessCode"
+      },
+      "description": "SaaS subscription access codes and user plan assignments"
+    },
+    "/workspaces/{workspaceId}": {
+      "schema": {
+        "$ref": "#/entities/UserWorkspace"
+      },
+      "description": "Per-user isolated poultry farm workspace"
+    },
+    "/workspaces/{workspaceId}/batches/{batchId}": {
+      "schema": {
+        "$ref": "#/entities/BatchRecord"
+      },
+      "description": "Broiler batches owned by a specific user workspace"
+    },
+    "/workspaces/{workspaceId}/dailyLogs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/DailyLogRecord"
+      },
+      "description": "Daily farm logs owned by a specific user workspace"
+    },
+    "/workspaces/{workspaceId}/cashFlow/{entryId}": {
+      "schema": {
+        "$ref": "#/entities/CashFlowRecord"
+      },
+      "description": "Financial cashflow entries owned by a specific user workspace"
+    }
+  }
+}
