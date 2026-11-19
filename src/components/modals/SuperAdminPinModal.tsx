@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Lock, Delete, ShieldCheck } from 'lucide-react';
+import { isJsonResponse, verifyLocalAdminPin } from '../../services/localSaasService';
 
 interface SuperAdminPinModalProps {
   isOpen: boolean;
@@ -30,20 +31,31 @@ export const SuperAdminPinModal: React.FC<SuperAdminPinModalProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pin: candidatePin }),
         });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.valid && data.adminToken) {
-          setPin('');
-          onSuccess(data.adminToken);
-        } else {
+        if (isJsonResponse(res)) {
+          const data = await res.json();
+          if (res.ok && data.valid && data.adminToken) {
+            setPin('');
+            onSuccess(data.adminToken);
+            return;
+          }
           setError(data.error || 'Code PIN incorrect.');
           setPin('');
+          return;
         }
       } catch {
-        setError('Impossible de vérifier le PIN. Vérifiez que le serveur est accessible.');
-        setPin('');
+        // Backend unreachable or offline: fall back to local PIN verification below
       } finally {
         verifyingRef.current = false;
         setIsVerifying(false);
+      }
+
+      const localResult = await verifyLocalAdminPin(candidatePin);
+      if (localResult.valid && localResult.adminToken) {
+        setPin('');
+        onSuccess(localResult.adminToken);
+      } else {
+        setError(localResult.error || 'Code PIN incorrect.');
+        setPin('');
       }
     },
     [onSuccess]

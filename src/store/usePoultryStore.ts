@@ -13,6 +13,11 @@ import {
 import { STANDARD_PROPHYLAXIS } from '../data/standardProphylaxis';
 import { syncWorkspaceToFirestore } from '../services/cloudSyncService';
 import { auth } from '../lib/firebase';
+import {
+  isJsonResponse,
+  localUnlockAdvisorCode,
+  saveLocalWorkspace,
+} from '../services/localSaasService';
 
 const SESSION_STORAGE_KEY = 'fermefacile-active-session-v1';
 const ADMIN_TOKEN_STORAGE_KEY = 'fermefacile-admin-token-v1';
@@ -255,6 +260,7 @@ function persistUserWorkspace(state: PoultryState, immediateServerSync = false):
 
   const snapshot = extractSnapshot(state);
   safeSetItem(workspaceStorageKey(user.id), JSON.stringify(snapshot));
+  saveLocalWorkspace(user.id, snapshot);
   safeSetItem(
     SESSION_STORAGE_KEY,
     JSON.stringify({ account: user, isAdminPreview: state.isAdminPreview })
@@ -266,7 +272,7 @@ function persistUserWorkspace(state: PoultryState, immediateServerSync = false):
         'Content-Type': 'application/json',
         'x-access-code': user.code,
       };
-      if (state.adminToken) {
+      if (state.adminToken && !state.adminToken.startsWith('local-superadmin:')) {
         headers['x-admin-token'] = state.adminToken;
       }
       const res = await fetch(`/api/workspace/${encodeURIComponent(user.id)}`, {
@@ -274,7 +280,7 @@ function persistUserWorkspace(state: PoultryState, immediateServerSync = false):
         headers,
         body: JSON.stringify(snapshot),
       });
-      if (res.ok) {
+      if (res.ok && isJsonResponse(res)) {
         usePoultryStore.setState({ syncQueue: [], lastSyncTime: Date.now() });
       }
     } catch {
@@ -530,39 +536,53 @@ export const usePoultryStore = create<PoultryState>((set, get) => ({
           userId: user?.id,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.unlocked) {
-        return {
-          ok: false,
-          error: data.error || 'Code Conseiller invalide. Contactez le Super Admin.',
-        };
-      }
+      if (isJsonResponse(res)) {
+        const data = await res.json();
+        if (!res.ok || !data.unlocked) {
+          return {
+            ok: false,
+            error: data.error || 'Code Conseiller invalide. Contactez le Super Admin.',
+          };
+        }
 
-      set({
-        advisorUnlocked: true,
-        advisorUnlockCode: normalized,
-      });
-      persistUserWorkspace(get(), true);
-      return { ok: true };
-    } catch {
-      // Offline fallback: verify against account's assigned advisor code if available locally
-      if (
-        user?.advisorAccessEnabled &&
-        user.advisorCode &&
-        user.advisorCode.toUpperCase() === normalized
-      ) {
         set({
           advisorUnlocked: true,
           advisorUnlockCode: normalized,
         });
-        persistUserWorkspace(get(), false);
+        persistUserWorkspace(get(), true);
         return { ok: true };
       }
-      return {
-        ok: false,
-        error: 'Connexion requise pour vérifier ce code Conseiller auprès du serveur.',
-      };
+    } catch {
+      // Offline or static host: fall back to local SaaS store below
     }
+
+    const localUnlock = localUnlockAdvisorCode(normalized, user?.id);
+    if (localUnlock.unlocked) {
+      set({
+        advisorUnlocked: true,
+        advisorUnlockCode: normalized,
+      });
+      persistUserWorkspace(get(), false);
+      return { ok: true };
+    }
+
+    if (
+      user?.advisorAccessEnabled &&
+      user.advisorCode &&
+      user.advisorCode.toUpperCase() === normalized
+    ) {
+      set({
+        advisorUnlocked: true,
+        advisorUnlockCode: normalized,
+      });
+      persistUserWorkspace(get(), false);
+      return { ok: true };
+    }
+
+    return {
+      ok: false,
+      error: localUnlock.error || 'Code Conseiller invalide. Contactez le Super Admin.',
+    };
   },
 
   lockAdvisorAccess: () => {

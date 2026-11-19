@@ -20,6 +20,7 @@ import { SaaSLoginScreen } from './components/SaaSLoginScreen';
 import { SuperAdminConsole } from './components/admin/SuperAdminConsole';
 import { usePoultryStore } from './store/usePoultryStore';
 import { SaaSUserAccount, UserWorkspaceSnapshot } from './types';
+import { isJsonResponse } from './services/localSaasService';
 
 // Modals
 import { LogMortalityModal } from './components/modals/LogMortalityModal';
@@ -101,7 +102,7 @@ export default function App() {
         const res = await fetch(`/api/workspace/${encodeURIComponent(currentUser.id)}`, {
           headers: { 'x-access-code': currentUser.code },
         });
-        if (cancelled) return;
+        if (cancelled || !isJsonResponse(res)) return;
         if (res.status === 403) {
           logoutUser();
           return;

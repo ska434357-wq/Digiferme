@@ -14,6 +14,12 @@ import { useTripleTap } from '../hooks/useTripleTap';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { usePoultryStore } from '../store/usePoultryStore';
 import { SaaSUserAccount, UserWorkspaceSnapshot } from '../types';
+import {
+  cacheServerAccountAndWorkspace,
+  isJsonResponse,
+  localLoginWithCode,
+  verifyLocalAdminPin,
+} from '../services/localSaasService';
 
 interface SaaSLoginScreenProps {
   onOpenAdminPin: () => void;
@@ -59,45 +65,77 @@ export const SaaSLoginScreen: React.FC<SaaSLoginScreenProps> = ({
     try {
       // Allow direct 6-digit Super Admin PIN entry on login screen as a convenience
       if (/^\d{6}$/.test(cleaned) && onAdminPinSuccess) {
-        const pinRes = await fetch('/api/admin/verify-pin', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pin: cleaned }),
-        });
-        const pinData = await pinRes.json().catch(() => ({}));
-        if (pinRes.ok && pinData.valid && pinData.adminToken) {
-          setCode('');
-          onAdminPinSuccess(pinData.adminToken);
-          return;
+        let serverHandledPin = false;
+        try {
+          const pinRes = await fetch('/api/admin/verify-pin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pin: cleaned }),
+          });
+          if (isJsonResponse(pinRes)) {
+            serverHandledPin = true;
+            const pinData = await pinRes.json();
+            if (pinRes.ok && pinData.valid && pinData.adminToken) {
+              setCode('');
+              onAdminPinSuccess(pinData.adminToken);
+              return;
+            }
+          }
+        } catch {
+          // Offline or static host: check local PIN below
+        }
+
+        if (!serverHandledPin) {
+          const localPin = await verifyLocalAdminPin(cleaned);
+          if (localPin.valid && localPin.adminToken) {
+            setCode('');
+            onAdminPinSuccess(localPin.adminToken);
+            return;
+          }
         }
       }
 
-      const res = await fetch('/api/auth/login-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: cleaned }),
-      });
+      try {
+        const res = await fetch('/api/auth/login-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: cleaned }),
+        });
 
-      const data = (await res.json()) as {
-        account?: SaaSUserAccount;
-        workspace?: Partial<UserWorkspaceSnapshot>;
-        error?: string;
-        expired?: boolean;
-      };
+        if (isJsonResponse(res)) {
+          const data = (await res.json()) as {
+            account?: SaaSUserAccount;
+            workspace?: Partial<UserWorkspaceSnapshot>;
+            error?: string;
+            expired?: boolean;
+          };
 
-      if (!res.ok || !data.account) {
-        setErrorMsg(data.error || 'Code d\'accès invalide.');
-        if (data.expired && data.account) {
-          setExpiredInfo(data.account);
+          if (!res.ok || !data.account) {
+            setErrorMsg(data.error || "Code d'accès invalide.");
+            if (data.expired && data.account) {
+              setExpiredInfo(data.account);
+            }
+            return;
+          }
+
+          cacheServerAccountAndWorkspace(data.account, data.workspace);
+          loadUserSession(data.account, data.workspace, { isAdminPreview: false });
+          return;
         }
+      } catch {
+        // Network offline or static host: fall back to local SaaS store below
+      }
+
+      const localResult = localLoginWithCode(cleaned);
+      if (localResult.ok && localResult.account) {
+        loadUserSession(localResult.account, localResult.workspace, { isAdminPreview: false });
         return;
       }
 
-      loadUserSession(data.account, data.workspace, { isAdminPreview: false });
-    } catch {
-      setErrorMsg(
-        'Connexion serveur impossible. Vérifiez votre réseau internet pour activer ce code.'
-      );
+      setErrorMsg(localResult.error || "Code d'accès invalide.");
+      if (localResult.expired && localResult.account) {
+        setExpiredInfo(localResult.account);
+      }
     } finally {
       setIsLoading(false);
     }

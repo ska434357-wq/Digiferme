@@ -47,6 +47,15 @@ export default defineConfig(() => {
           globPatterns: ['**/*.{js,css,html,png,svg}'],
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           navigateFallbackDenylist: [/^\/api\//],
+          cleanupOutdatedCaches: true,
+          clientsClaim: true,
+          skipWaiting: true,
+          runtimeCaching: [
+            {
+              urlPattern: /^\/api\/.*/i,
+              handler: 'NetworkOnly',
+            },
+          ],
         },
         devOptions: {
           enabled: true,

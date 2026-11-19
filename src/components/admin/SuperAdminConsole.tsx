@@ -36,6 +36,20 @@ import {
   signOutGoogleCloud,
   syncAccessCodeToFirestore,
 } from '../../services/cloudSyncService';
+import {
+  isJsonResponse,
+  isLocalAdminToken,
+  localCreateAccount,
+  localCreateAdvisorCode,
+  localDeleteAccount,
+  localDeleteAdvisorCode,
+  localGetWorkspaceForAdmin,
+  localListAccounts,
+  localListAdvisorCodes,
+  localReplaceFromServer,
+  localToggleAdvisorCode,
+  localUpdateAccount,
+} from '../../services/localSaasService';
 
 interface SuperAdminConsoleProps {
   adminToken: string;
@@ -109,39 +123,54 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
   const [cloudEmail, setCloudEmail] = useState<string | null>(auth.currentUser?.email || null);
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
 
+  const useLocalMode = isLocalAdminToken(adminToken);
+
   const fetchAccounts = useCallback(async () => {
     setIsLoading(true);
     setErrorMsg('');
     setIsAuthExpired(false);
-    try {
-      const [accountsRes, advRes] = await Promise.all([
-        fetch('/api/admin/codes', {
-          headers: { 'x-admin-token': adminToken },
-        }),
-        fetch('/api/admin/advisor-codes', {
-          headers: { 'x-admin-token': adminToken },
-        }),
-      ]);
-      const data = await accountsRes.json();
-      if (!accountsRes.ok) {
-        if (accountsRes.status === 401) {
-          setIsAuthExpired(true);
-        }
-        setErrorMsg(data.error || 'Erreur lors du chargement des comptes.');
-        return;
-      }
-      setAccounts(Array.isArray(data.accounts) ? data.accounts : []);
 
-      if (advRes.ok) {
-        const advData = await advRes.json();
-        setAdvisorCodes(Array.isArray(advData.advisorCodes) ? advData.advisorCodes : []);
+    if (!useLocalMode) {
+      try {
+        const [accountsRes, advRes] = await Promise.all([
+          fetch('/api/admin/codes', {
+            headers: { 'x-admin-token': adminToken },
+          }),
+          fetch('/api/admin/advisor-codes', {
+            headers: { 'x-admin-token': adminToken },
+          }),
+        ]);
+        if (isJsonResponse(accountsRes)) {
+          const data = await accountsRes.json();
+          if (!accountsRes.ok) {
+            if (accountsRes.status === 401) {
+              setIsAuthExpired(true);
+            }
+            setErrorMsg(data.error || 'Erreur lors du chargement des comptes.');
+            return;
+          }
+          const serverAccounts = Array.isArray(data.accounts) ? data.accounts : [];
+          let serverAdvisorCodes: AdvisorCodeRecord[] = [];
+          if (advRes.ok && isJsonResponse(advRes)) {
+            const advData = await advRes.json();
+            serverAdvisorCodes = Array.isArray(advData.advisorCodes) ? advData.advisorCodes : [];
+          }
+          setAccounts(serverAccounts);
+          setAdvisorCodes(serverAdvisorCodes);
+          localReplaceFromServer(serverAccounts, serverAdvisorCodes);
+          return;
+        }
+      } catch {
+        // Offline or static host: fall back to local SaaS database
+      } finally {
+        setIsLoading(false);
       }
-    } catch {
-      setErrorMsg('Impossible de contacter le serveur.');
-    } finally {
-      setIsLoading(false);
     }
-  }, [adminToken]);
+
+    setAccounts(localListAccounts());
+    setAdvisorCodes(localListAdvisorCodes());
+    setIsLoading(false);
+  }, [adminToken, useLocalMode]);
 
   useEffect(() => {
     void fetchAccounts();
@@ -159,13 +188,44 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
     setSuccessMsg('');
 
     try {
-      const res = await fetch('/api/admin/codes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-token': adminToken,
-        },
-        body: JSON.stringify({
+      let created: SaaSUserAccount | undefined;
+
+      if (!useLocalMode) {
+        try {
+          const res = await fetch('/api/admin/codes', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-admin-token': adminToken,
+            },
+            body: JSON.stringify({
+              farmerName,
+              farmName,
+              phone,
+              country,
+              plan,
+              paymentMethod,
+              amountFCFA,
+              customCode: customCode.trim() || undefined,
+              seedDemo,
+              includeAdvisorCode,
+            }),
+          });
+          if (isJsonResponse(res)) {
+            const data = await res.json();
+            if (!res.ok || !data.account) {
+              setErrorMsg(data.error || 'Création impossible.');
+              return;
+            }
+            created = data.account as SaaSUserAccount;
+          }
+        } catch {
+          // Fall back to local mode below
+        }
+      }
+
+      if (!created) {
+        const localRes = localCreateAccount({
           farmerName,
           farmName,
           phone,
@@ -176,16 +236,15 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
           customCode: customCode.trim() || undefined,
           seedDemo,
           includeAdvisorCode,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.account) {
-        setErrorMsg(data.error || 'Création impossible.');
-        return;
+        });
+        if (!localRes.ok || !localRes.account) {
+          setErrorMsg(localRes.error || 'Création impossible.');
+          return;
+        }
+        created = localRes.account;
       }
 
-      const created = data.account as SaaSUserAccount;
-      setAccounts((prev) => [created, ...prev]);
+      setAccounts((prev) => [created!, ...prev]);
       setSuccessMsg(
         created.advisorCode
           ? `Code créé pour ${created.farmerName} : ${created.code} (Conseiller : ${created.advisorCode})`
@@ -203,8 +262,6 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
           // Best effort cloud backup
         }
       }
-    } catch {
-      setErrorMsg('Erreur réseau lors de la création.');
     } finally {
       setIsCreating(false);
     }
@@ -212,97 +269,152 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
 
   const handleRenew = async (account: SaaSUserAccount, renewPlan: SubscriptionPlan) => {
     setErrorMsg('');
-    try {
-      const res = await fetch(`/api/admin/codes/${encodeURIComponent(account.id)}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-token': adminToken,
-        },
-        body: JSON.stringify({
-          renewPlan,
-          amountFCFA: PLAN_LABELS[renewPlan].price,
-        }),
+    let updated: SaaSUserAccount | undefined;
+
+    if (!useLocalMode) {
+      try {
+        const res = await fetch(`/api/admin/codes/${encodeURIComponent(account.id)}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-token': adminToken,
+          },
+          body: JSON.stringify({
+            renewPlan,
+            amountFCFA: PLAN_LABELS[renewPlan].price,
+          }),
+        });
+        if (isJsonResponse(res)) {
+          const data = await res.json();
+          if (!res.ok || !data.account) {
+            setErrorMsg(data.error || 'Renouvellement impossible.');
+            return;
+          }
+          updated = data.account as SaaSUserAccount;
+        }
+      } catch {
+        // Fall back to local update
+      }
+    }
+
+    if (!updated) {
+      const localRes = localUpdateAccount(account.id, {
+        renewPlan,
+        amountFCFA: PLAN_LABELS[renewPlan].price,
       });
-      const data = await res.json();
-      if (!res.ok || !data.account) {
-        setErrorMsg(data.error || 'Renouvellement impossible.');
+      if (!localRes.ok || !localRes.account) {
+        setErrorMsg(localRes.error || 'Renouvellement impossible.');
         return;
       }
-      const updated = data.account as SaaSUserAccount;
-      setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-      setSuccessMsg(
-        `Abonnement ${PLAN_LABELS[renewPlan].label} appliqué pour ${updated.farmerName}.`
-      );
-      if (auth.currentUser?.emailVerified) {
-        void syncAccessCodeToFirestore(updated).catch(() => {});
-      }
-    } catch {
-      setErrorMsg('Erreur réseau lors du renouvellement.');
+      updated = localRes.account;
+    }
+
+    setAccounts((prev) => prev.map((a) => (a.id === updated!.id ? updated! : a)));
+    setSuccessMsg(
+      `Abonnement ${PLAN_LABELS[renewPlan].label} appliqué pour ${updated.farmerName}.`
+    );
+    if (auth.currentUser?.emailVerified) {
+      void syncAccessCodeToFirestore(updated).catch(() => {});
     }
   };
 
   const handleToggleSuspend = async (account: SaaSUserAccount) => {
     const nextStatus = account.status === 'suspended' ? 'active' : 'suspended';
     setErrorMsg('');
-    try {
-      const res = await fetch(`/api/admin/codes/${encodeURIComponent(account.id)}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-token': adminToken,
-        },
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.account) {
-        setErrorMsg(data.error || 'Modification impossible.');
+    let updated: SaaSUserAccount | undefined;
+
+    if (!useLocalMode) {
+      try {
+        const res = await fetch(`/api/admin/codes/${encodeURIComponent(account.id)}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-token': adminToken,
+          },
+          body: JSON.stringify({ status: nextStatus }),
+        });
+        if (isJsonResponse(res)) {
+          const data = await res.json();
+          if (!res.ok || !data.account) {
+            setErrorMsg(data.error || 'Modification impossible.');
+            return;
+          }
+          updated = data.account as SaaSUserAccount;
+        }
+      } catch {
+        // Fall back to local update
+      }
+    }
+
+    if (!updated) {
+      const localRes = localUpdateAccount(account.id, { status: nextStatus });
+      if (!localRes.ok || !localRes.account) {
+        setErrorMsg(localRes.error || 'Modification impossible.');
         return;
       }
-      const updated = data.account as SaaSUserAccount;
-      setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-      if (auth.currentUser?.emailVerified) {
-        void syncAccessCodeToFirestore(updated).catch(() => {});
-      }
-    } catch {
-      setErrorMsg('Erreur réseau.');
+      updated = localRes.account;
+    }
+
+    setAccounts((prev) => prev.map((a) => (a.id === updated!.id ? updated! : a)));
+    if (auth.currentUser?.emailVerified) {
+      void syncAccessCodeToFirestore(updated).catch(() => {});
     }
   };
 
   const handleDelete = async (id: string) => {
     setErrorMsg('');
-    try {
-      const res = await fetch(`/api/admin/codes/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-        headers: { 'x-admin-token': adminToken },
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        setErrorMsg(data.error || 'Suppression impossible.');
-        return;
+    let handledByServer = false;
+
+    if (!useLocalMode) {
+      try {
+        const res = await fetch(`/api/admin/codes/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { 'x-admin-token': adminToken },
+        });
+        if (isJsonResponse(res)) {
+          handledByServer = true;
+          if (!res.ok) {
+            const data = await res.json();
+            setErrorMsg(data.error || 'Suppression impossible.');
+            return;
+          }
+        }
+      } catch {
+        // Fall back to local delete
       }
-      setAccounts((prev) => prev.filter((a) => a.id !== id));
-      setConfirmDeleteId(null);
-    } catch {
-      setErrorMsg('Erreur réseau lors de la suppression.');
     }
+
+    if (!handledByServer) {
+      localDeleteAccount(id);
+    }
+
+    setAccounts((prev) => prev.filter((a) => a.id !== id));
+    setConfirmDeleteId(null);
   };
 
   const handleInspectWorkspace = async (account: SaaSUserAccount) => {
     setErrorMsg('');
-    try {
-      const res = await fetch(`/api/admin/workspace/${encodeURIComponent(account.id)}`, {
-        headers: { 'x-admin-token': adminToken },
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorMsg(data.error || 'Impossible d\'ouvrir cette page utilisateur.');
-        return;
+    if (!useLocalMode) {
+      try {
+        const res = await fetch(`/api/admin/workspace/${encodeURIComponent(account.id)}`, {
+          headers: { 'x-admin-token': adminToken },
+        });
+        if (isJsonResponse(res)) {
+          const data = await res.json();
+          if (!res.ok) {
+            setErrorMsg(data.error || "Impossible d'ouvrir cette page utilisateur.");
+            return;
+          }
+          onOpenUserPage(data.account || account, data.workspace || {});
+          return;
+        }
+      } catch {
+        // Fall back to local workspace
       }
-      onOpenUserPage(data.account || account, data.workspace || {});
-    } catch {
-      setErrorMsg('Erreur réseau lors de l\'ouverture de la page.');
     }
+
+    const localData = localGetWorkspaceForAdmin(account.id);
+    onOpenUserPage(localData.account || account, localData.workspace || {});
   };
 
   const handleCopyCode = async (account: SaaSUserAccount) => {
@@ -334,40 +446,61 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
     action: 'generate' | 'enable' | 'disable'
   ) => {
     setErrorMsg('');
-    try {
-      const payload =
-        action === 'generate'
-          ? { generateAdvisorCode: true }
-          : action === 'enable'
-          ? { advisorAccessEnabled: true }
-          : { advisorAccessEnabled: false };
+    const payload =
+      action === 'generate'
+        ? { generateAdvisorCode: true }
+        : action === 'enable'
+        ? { advisorAccessEnabled: true }
+        : { advisorAccessEnabled: false };
 
-      const res = await fetch(`/api/admin/codes/${encodeURIComponent(account.id)}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-token': adminToken,
-        },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.account) {
-        setErrorMsg(data.error || 'Mise à jour Conseiller impossible.');
+    let updated: SaaSUserAccount | undefined;
+    let nextAdvisorCodes: AdvisorCodeRecord[] | undefined;
+
+    if (!useLocalMode) {
+      try {
+        const res = await fetch(`/api/admin/codes/${encodeURIComponent(account.id)}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-token': adminToken,
+          },
+          body: JSON.stringify(payload),
+        });
+        if (isJsonResponse(res)) {
+          const data = await res.json();
+          if (!res.ok || !data.account) {
+            setErrorMsg(data.error || 'Mise à jour Conseiller impossible.');
+            return;
+          }
+          updated = data.account as SaaSUserAccount;
+          if (Array.isArray(data.advisorCodes)) {
+            nextAdvisorCodes = data.advisorCodes;
+          }
+        }
+      } catch {
+        // Fall back to local mode
+      }
+    }
+
+    if (!updated) {
+      const localRes = localUpdateAccount(account.id, payload);
+      if (!localRes.ok || !localRes.account) {
+        setErrorMsg(localRes.error || 'Mise à jour Conseiller impossible.');
         return;
       }
-      const updated = data.account as SaaSUserAccount;
-      setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
-      if (Array.isArray(data.advisorCodes)) {
-        setAdvisorCodes(data.advisorCodes);
-      }
-      setSuccessMsg(
-        action === 'disable'
-          ? `Option Conseiller désactivée pour ${updated.farmerName}.`
-          : `Code Conseiller actif pour ${updated.farmerName} : ${updated.advisorCode}`
-      );
-    } catch {
-      setErrorMsg('Erreur réseau lors de la mise à jour Conseiller.');
+      updated = localRes.account;
+      nextAdvisorCodes = localRes.advisorCodes;
     }
+
+    setAccounts((prev) => prev.map((a) => (a.id === updated!.id ? updated! : a)));
+    if (nextAdvisorCodes) {
+      setAdvisorCodes(nextAdvisorCodes);
+    }
+    setSuccessMsg(
+      action === 'disable'
+        ? `Option Conseiller désactivée pour ${updated.farmerName}.`
+        : `Code Conseiller actif pour ${updated.farmerName} : ${updated.advisorCode}`
+    );
   };
 
   const handleCreateStandaloneAdvisorCode = async (e: React.FormEvent) => {
@@ -375,32 +508,55 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
     setIsCreatingAdvCode(true);
     setErrorMsg('');
     try {
-      const res = await fetch('/api/admin/advisor-codes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-token': adminToken,
-        },
-        body: JSON.stringify({
+      let created: AdvisorCodeRecord | undefined;
+
+      if (!useLocalMode) {
+        try {
+          const res = await fetch('/api/admin/advisor-codes', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-admin-token': adminToken,
+            },
+            body: JSON.stringify({
+              label: advLabel.trim() || undefined,
+              farmerName: advFarmerName.trim() || undefined,
+              phone: advPhone.trim() || undefined,
+              customCode: advCustomCode.trim() || undefined,
+            }),
+          });
+          if (isJsonResponse(res)) {
+            const data = await res.json();
+            if (!res.ok || !data.advisorCode) {
+              setErrorMsg(data.error || 'Impossible de générer le code Conseiller.');
+              return;
+            }
+            created = data.advisorCode as AdvisorCodeRecord;
+          }
+        } catch {
+          // Fall back to local mode
+        }
+      }
+
+      if (!created) {
+        const localRes = localCreateAdvisorCode({
           label: advLabel.trim() || undefined,
           farmerName: advFarmerName.trim() || undefined,
           phone: advPhone.trim() || undefined,
           customCode: advCustomCode.trim() || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.advisorCode) {
-        setErrorMsg(data.error || 'Impossible de générer le code Conseiller.');
-        return;
+        });
+        if (!localRes.ok || !localRes.advisorCode) {
+          setErrorMsg(localRes.error || 'Impossible de générer le code Conseiller.');
+          return;
+        }
+        created = localRes.advisorCode;
       }
-      const created = data.advisorCode as AdvisorCodeRecord;
-      setAdvisorCodes((prev) => [created, ...prev]);
+
+      setAdvisorCodes((prev) => [created!, ...prev]);
       setSuccessMsg(`Code Conseiller généré : ${created.code}`);
       setAdvLabel('');
       setAdvFarmerName('');
       setAdvCustomCode('');
-    } catch {
-      setErrorMsg('Erreur réseau.');
     } finally {
       setIsCreatingAdvCode(false);
     }
@@ -408,45 +564,74 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
 
   const handleToggleAdvisorCode = async (rec: AdvisorCodeRecord) => {
     setErrorMsg('');
-    try {
-      const res = await fetch(`/api/admin/advisor-codes/${encodeURIComponent(rec.id)}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-token': adminToken,
-        },
-        body: JSON.stringify({ status: rec.status === 'active' ? 'revoked' : 'active' }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.advisorCode) {
-        setErrorMsg(data.error || 'Modification impossible.');
+    const targetStatus = rec.status === 'active' ? 'revoked' : 'active';
+    let updated: AdvisorCodeRecord | undefined;
+
+    if (!useLocalMode) {
+      try {
+        const res = await fetch(`/api/admin/advisor-codes/${encodeURIComponent(rec.id)}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-token': adminToken,
+          },
+          body: JSON.stringify({ status: targetStatus }),
+        });
+        if (isJsonResponse(res)) {
+          const data = await res.json();
+          if (!res.ok || !data.advisorCode) {
+            setErrorMsg(data.error || 'Modification impossible.');
+            return;
+          }
+          updated = data.advisorCode as AdvisorCodeRecord;
+        }
+      } catch {
+        // Fall back to local mode
+      }
+    }
+
+    if (!updated) {
+      const localUpdated = localToggleAdvisorCode(rec.id, targetStatus);
+      if (!localUpdated) {
+        setErrorMsg('Code Conseiller introuvable.');
         return;
       }
-      const updated = data.advisorCode as AdvisorCodeRecord;
-      setAdvisorCodes((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-      void fetchAccounts();
-    } catch {
-      setErrorMsg('Erreur réseau.');
+      updated = localUpdated;
     }
+
+    setAdvisorCodes((prev) => prev.map((c) => (c.id === updated!.id ? updated! : c)));
+    void fetchAccounts();
   };
 
   const handleDeleteAdvisorCode = async (id: string) => {
     setErrorMsg('');
-    try {
-      const res = await fetch(`/api/admin/advisor-codes/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-        headers: { 'x-admin-token': adminToken },
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        setErrorMsg(data.error || 'Suppression impossible.');
-        return;
+    let handledByServer = false;
+
+    if (!useLocalMode) {
+      try {
+        const res = await fetch(`/api/admin/advisor-codes/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { 'x-admin-token': adminToken },
+        });
+        if (isJsonResponse(res)) {
+          handledByServer = true;
+          if (!res.ok) {
+            const data = await res.json();
+            setErrorMsg(data.error || 'Suppression impossible.');
+            return;
+          }
+        }
+      } catch {
+        // Fall back to local mode
       }
-      setAdvisorCodes((prev) => prev.filter((c) => c.id !== id));
-      void fetchAccounts();
-    } catch {
-      setErrorMsg('Erreur réseau.');
     }
+
+    if (!handledByServer) {
+      localDeleteAdvisorCode(id);
+    }
+
+    setAdvisorCodes((prev) => prev.filter((c) => c.id !== id));
+    void fetchAccounts();
   };
 
   const handleCopyText = async (keyId: string, textToCopy: string) => {
