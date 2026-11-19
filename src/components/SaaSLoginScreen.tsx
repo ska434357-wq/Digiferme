@@ -7,6 +7,7 @@ import {
   WifiOff,
   Smartphone,
   ShieldAlert,
+  ShieldCheck,
   CheckCircle2,
 } from 'lucide-react';
 import { useTripleTap } from '../hooks/useTripleTap';
@@ -16,9 +17,13 @@ import { SaaSUserAccount, UserWorkspaceSnapshot } from '../types';
 
 interface SaaSLoginScreenProps {
   onOpenAdminPin: () => void;
+  onAdminPinSuccess?: (adminToken: string) => void;
 }
 
-export const SaaSLoginScreen: React.FC<SaaSLoginScreenProps> = ({ onOpenAdminPin }) => {
+export const SaaSLoginScreen: React.FC<SaaSLoginScreenProps> = ({
+  onOpenAdminPin,
+  onAdminPinSuccess,
+}) => {
   const isOnline = useOnlineStatus();
   const themeMode = usePoultryStore((state) => state.themeMode);
   const toggleThemeMode = usePoultryStore((state) => state.toggleThemeMode);
@@ -40,11 +45,33 @@ export const SaaSLoginScreen: React.FC<SaaSLoginScreenProps> = ({ onOpenAdminPin
       return;
     }
 
+    if (cleaned === 'ADMIN' || cleaned === 'SUPERADMIN') {
+      setCode('');
+      setErrorMsg('');
+      onOpenAdminPin();
+      return;
+    }
+
     setIsLoading(true);
     setErrorMsg('');
     setExpiredInfo(null);
 
     try {
+      // Allow direct 6-digit Super Admin PIN entry on login screen as a convenience
+      if (/^\d{6}$/.test(cleaned) && onAdminPinSuccess) {
+        const pinRes = await fetch('/api/admin/verify-pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: cleaned }),
+        });
+        const pinData = await pinRes.json().catch(() => ({}));
+        if (pinRes.ok && pinData.valid && pinData.adminToken) {
+          setCode('');
+          onAdminPinSuccess(pinData.adminToken);
+          return;
+        }
+      }
+
       const res = await fetch('/api/auth/login-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -216,8 +243,18 @@ export const SaaSLoginScreen: React.FC<SaaSLoginScreenProps> = ({ onOpenAdminPin
       </div>
 
       {/* Footer */}
-      <div className="w-full max-w-md mx-auto text-center text-[11px] text-slate-500">
-        FermeFacile Avicole • Côte d'Ivoire • Sénégal • Burkina Faso • Mali
+      <div className="w-full max-w-md mx-auto text-center space-y-2">
+        <p className="text-[11px] text-slate-500">
+          FermeFacile Avicole • Côte d'Ivoire • Sénégal • Burkina Faso • Mali
+        </p>
+        <button
+          type="button"
+          onClick={onOpenAdminPin}
+          className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[11px] font-semibold text-slate-300 transition min-h-[36px]"
+        >
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+          <span>Accès Super Admin</span>
+        </button>
       </div>
     </div>
   );

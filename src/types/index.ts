@@ -105,6 +105,26 @@ export type SubscriptionPlan = 'mensuel' | 'trimestriel' | 'annuel';
 export type SubscriptionStatus = 'active' | 'suspended' | 'expired';
 export type SaaSPaymentMethod = 'wave' | 'orange_money' | 'mtn_momo' | 'moov_money' | 'cash';
 
+export const ADVISOR_CONTACT = {
+  phoneDisplay: '+226 74 36 60 51',
+  phoneHref: 'tel:+22674366051',
+  whatsappDigits: '22674366051',
+} as const;
+
+export interface AdvisorCodeRecord {
+  id: string;
+  code: string;
+  label: string;
+  userId?: string;
+  farmerName?: string;
+  phone?: string;
+  status: 'active' | 'revoked';
+  createdAtMs: number;
+  usedCount: number;
+  lastUsedAtMs?: number;
+  lastUsedByUserId?: string;
+}
+
 export interface SaaSUserAccount {
   id: string;
   code: string;
@@ -120,6 +140,8 @@ export interface SaaSUserAccount {
   createdAtMs: number;
   expiresAtMs: number;
   lastLoginAtMs?: number;
+  advisorAccessEnabled?: boolean;
+  advisorCode?: string;
 }
 
 export interface UserWorkspaceSnapshot {
@@ -134,6 +156,7 @@ export interface UserWorkspaceSnapshot {
   heatAlertThreshold: number;
   currentSimulatedTemp: number;
   themeMode: 'dark' | 'light';
+  advisorUnlocked?: boolean;
+  advisorUnlockCode?: string;
   updatedAtMs: number;
 }
-

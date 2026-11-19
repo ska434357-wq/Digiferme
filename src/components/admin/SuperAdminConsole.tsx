@@ -17,6 +17,8 @@ import {
   Cloud,
   Users,
   Calendar,
+  Headset,
+  KeyRound,
 } from 'lucide-react';
 import {
   SaaSUserAccount,
@@ -24,6 +26,8 @@ import {
   SaaSPaymentMethod,
   WestAfricanCountry,
   UserWorkspaceSnapshot,
+  AdvisorCodeRecord,
+  ADVISOR_CONTACT,
 } from '../../types';
 import { usePoultryStore } from '../../store/usePoultryStore';
 import { auth } from '../../lib/firebase';
@@ -37,6 +41,7 @@ interface SuperAdminConsoleProps {
   adminToken: string;
   onExitAdmin: () => void;
   onOpenUserPage: (account: SaaSUserAccount, workspace: Partial<UserWorkspaceSnapshot>) => void;
+  onRequestReauth?: () => void;
 }
 
 const PLAN_LABELS: Record<SubscriptionPlan, { label: string; days: number; price: number }> = {
@@ -57,6 +62,7 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
   adminToken,
   onExitAdmin,
   onOpenUserPage,
+  onRequestReauth,
 }) => {
   const themeMode = usePoultryStore((state) => state.themeMode);
   const toggleThemeMode = usePoultryStore((state) => state.toggleThemeMode);
@@ -65,6 +71,7 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
   const [accounts, setAccounts] = useState<SaaSUserAccount[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [isAuthExpired, setIsAuthExpired] = useState<boolean>(false);
   const [successMsg, setSuccessMsg] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -85,7 +92,18 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
   const [amountFCFA, setAmountFCFA] = useState<number>(5000);
   const [customCode, setCustomCode] = useState<string>('');
   const [seedDemo, setSeedDemo] = useState<boolean>(false);
+  const [includeAdvisorCode, setIncludeAdvisorCode] = useState<boolean>(true);
   const [isCreating, setIsCreating] = useState<boolean>(false);
+
+  // Advisor Codes Management (+226 74 36 60 51)
+  const [advisorCodes, setAdvisorCodes] = useState<AdvisorCodeRecord[]>([]);
+  const [showAdvisorPanel, setShowAdvisorPanel] = useState<boolean>(true);
+  const [advLabel, setAdvLabel] = useState<string>('');
+  const [advFarmerName, setAdvFarmerName] = useState<string>('');
+  const [advPhone, setAdvPhone] = useState<string>('+226 ');
+  const [advCustomCode, setAdvCustomCode] = useState<string>('');
+  const [isCreatingAdvCode, setIsCreatingAdvCode] = useState<boolean>(false);
+  const [copiedAdvisorId, setCopiedAdvisorId] = useState<string | null>(null);
 
   // Firebase Google Cloud state
   const [cloudEmail, setCloudEmail] = useState<string | null>(auth.currentUser?.email || null);
@@ -94,16 +112,30 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
   const fetchAccounts = useCallback(async () => {
     setIsLoading(true);
     setErrorMsg('');
+    setIsAuthExpired(false);
     try {
-      const res = await fetch('/api/admin/codes', {
-        headers: { 'x-admin-token': adminToken },
-      });
-      const data = await res.json();
-      if (!res.ok) {
+      const [accountsRes, advRes] = await Promise.all([
+        fetch('/api/admin/codes', {
+          headers: { 'x-admin-token': adminToken },
+        }),
+        fetch('/api/admin/advisor-codes', {
+          headers: { 'x-admin-token': adminToken },
+        }),
+      ]);
+      const data = await accountsRes.json();
+      if (!accountsRes.ok) {
+        if (accountsRes.status === 401) {
+          setIsAuthExpired(true);
+        }
         setErrorMsg(data.error || 'Erreur lors du chargement des comptes.');
         return;
       }
       setAccounts(Array.isArray(data.accounts) ? data.accounts : []);
+
+      if (advRes.ok) {
+        const advData = await advRes.json();
+        setAdvisorCodes(Array.isArray(advData.advisorCodes) ? advData.advisorCodes : []);
+      }
     } catch {
       setErrorMsg('Impossible de contacter le serveur.');
     } finally {
@@ -143,6 +175,7 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
           amountFCFA,
           customCode: customCode.trim() || undefined,
           seedDemo,
+          includeAdvisorCode,
         }),
       });
       const data = await res.json();
@@ -153,10 +186,15 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
 
       const created = data.account as SaaSUserAccount;
       setAccounts((prev) => [created, ...prev]);
-      setSuccessMsg(`Code créé pour ${created.farmerName} : ${created.code}`);
+      setSuccessMsg(
+        created.advisorCode
+          ? `Code créé pour ${created.farmerName} : ${created.code} (Conseiller : ${created.advisorCode})`
+          : `Code créé pour ${created.farmerName} : ${created.code}`
+      );
       setFarmerName('');
       setFarmName('');
       setCustomCode('');
+      void fetchAccounts();
 
       if (auth.currentUser?.emailVerified) {
         try {
@@ -280,11 +318,160 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
   const handleSendWhatsApp = (account: SaaSUserAccount) => {
     const expDate = new Date(account.expiresAtMs).toLocaleDateString('fr-FR');
     const cleanPhone = account.phone.replace(/[^0-9]/g, '');
-    const text = `🐔 *FERMEFACILE AVICOLE*\nBonjour ${account.farmerName},\nVoici votre code d'accès personnel pour votre page *${account.farmName}* :\n\n🔑 Code : *${account.code}*\n📅 Formule : ${PLAN_LABELS[account.plan].label} (valide jusqu'au ${expDate})\n\nOuvrez l'application FermeFacile et entrez ce code pour accéder à votre espace privé.`;
+    const advisorLine =
+      account.advisorAccessEnabled && account.advisorCode
+        ? `\n🩺 Code Conseiller (${ADVISOR_CONTACT.phoneDisplay}) : *${account.advisorCode}*`
+        : '';
+    const text = `🐔 *FERMEFACILE AVICOLE*\nBonjour ${account.farmerName},\nVoici votre code d'accès personnel pour votre page *${account.farmName}* :\n\n🔑 Code : *${account.code}*\n📅 Formule : ${PLAN_LABELS[account.plan].label} (valide jusqu'au ${expDate})${advisorLine}\n\nOuvrez l'application FermeFacile et entrez ce code pour accéder à votre espace privé.`;
     const url = cleanPhone
       ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`
       : `https://wa.me/?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleAccountAdvisorAction = async (
+    account: SaaSUserAccount,
+    action: 'generate' | 'enable' | 'disable'
+  ) => {
+    setErrorMsg('');
+    try {
+      const payload =
+        action === 'generate'
+          ? { generateAdvisorCode: true }
+          : action === 'enable'
+          ? { advisorAccessEnabled: true }
+          : { advisorAccessEnabled: false };
+
+      const res = await fetch(`/api/admin/codes/${encodeURIComponent(account.id)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': adminToken,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.account) {
+        setErrorMsg(data.error || 'Mise à jour Conseiller impossible.');
+        return;
+      }
+      const updated = data.account as SaaSUserAccount;
+      setAccounts((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+      if (Array.isArray(data.advisorCodes)) {
+        setAdvisorCodes(data.advisorCodes);
+      }
+      setSuccessMsg(
+        action === 'disable'
+          ? `Option Conseiller désactivée pour ${updated.farmerName}.`
+          : `Code Conseiller actif pour ${updated.farmerName} : ${updated.advisorCode}`
+      );
+    } catch {
+      setErrorMsg('Erreur réseau lors de la mise à jour Conseiller.');
+    }
+  };
+
+  const handleCreateStandaloneAdvisorCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsCreatingAdvCode(true);
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/admin/advisor-codes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': adminToken,
+        },
+        body: JSON.stringify({
+          label: advLabel.trim() || undefined,
+          farmerName: advFarmerName.trim() || undefined,
+          phone: advPhone.trim() || undefined,
+          customCode: advCustomCode.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.advisorCode) {
+        setErrorMsg(data.error || 'Impossible de générer le code Conseiller.');
+        return;
+      }
+      const created = data.advisorCode as AdvisorCodeRecord;
+      setAdvisorCodes((prev) => [created, ...prev]);
+      setSuccessMsg(`Code Conseiller généré : ${created.code}`);
+      setAdvLabel('');
+      setAdvFarmerName('');
+      setAdvCustomCode('');
+    } catch {
+      setErrorMsg('Erreur réseau.');
+    } finally {
+      setIsCreatingAdvCode(false);
+    }
+  };
+
+  const handleToggleAdvisorCode = async (rec: AdvisorCodeRecord) => {
+    setErrorMsg('');
+    try {
+      const res = await fetch(`/api/admin/advisor-codes/${encodeURIComponent(rec.id)}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': adminToken,
+        },
+        body: JSON.stringify({ status: rec.status === 'active' ? 'revoked' : 'active' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.advisorCode) {
+        setErrorMsg(data.error || 'Modification impossible.');
+        return;
+      }
+      const updated = data.advisorCode as AdvisorCodeRecord;
+      setAdvisorCodes((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+      void fetchAccounts();
+    } catch {
+      setErrorMsg('Erreur réseau.');
+    }
+  };
+
+  const handleDeleteAdvisorCode = async (id: string) => {
+    setErrorMsg('');
+    try {
+      const res = await fetch(`/api/admin/advisor-codes/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'x-admin-token': adminToken },
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setErrorMsg(data.error || 'Suppression impossible.');
+        return;
+      }
+      setAdvisorCodes((prev) => prev.filter((c) => c.id !== id));
+      void fetchAccounts();
+    } catch {
+      setErrorMsg('Erreur réseau.');
+    }
+  };
+
+  const handleCopyText = async (keyId: string, textToCopy: string) => {
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedAdvisorId(keyId);
+      setTimeout(() => setCopiedAdvisorId(null), 1800);
+    } catch {
+      setSuccessMsg(`Code : ${textToCopy}`);
+    }
+  };
+
+  const handleSendAdvisorCodeWhatsApp = (
+    code: string,
+    recipientName?: string,
+    recipientPhone?: string
+  ) => {
+    const cleanPhone = (recipientPhone || '').replace(/[^0-9]/g, '');
+    const text = `🩺 *OPTION CONSEILLER AVICOLE - FERMEFACILE*\nBonjour${
+      recipientName ? ` ${recipientName}` : ''
+    },\nVoici votre code pour débloquer l'appel téléphonique et le chat WhatsApp avec notre conseiller du domaine (${ADVISOR_CONTACT.phoneDisplay}) :\n\n🔑 Code Conseiller : *${code}*\n\nDans l'application, ouvrez *Santé* → *Conseiller du Domaine* et entrez ce code.`;
+    const url = cleanPhone
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleCloudSync = async () => {
@@ -438,8 +625,17 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
         </div>
 
         {errorMsg && (
-          <div className="p-3 rounded-xl bg-red-950/40 border border-red-800/60 text-xs text-red-300">
-            {errorMsg}
+          <div className="p-3 rounded-xl bg-red-950/40 border border-red-800/60 text-xs text-red-300 flex items-center justify-between gap-2 flex-wrap">
+            <span>{errorMsg}</span>
+            {isAuthExpired && onRequestReauth && (
+              <button
+                type="button"
+                onClick={onRequestReauth}
+                className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-semibold text-xs shrink-0"
+              >
+                Ressaisir le PIN
+              </button>
+            )}
           </div>
         )}
         {successMsg && (
@@ -615,6 +811,18 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
                 <span>Pré-remplir la page avec un lot exemple (sinon page vierge)</span>
               </label>
 
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeAdvisorCode}
+                  onChange={(e) => setIncludeAdvisorCode(e.target.checked)}
+                  className="rounded border-slate-700"
+                />
+                <span>
+                  Générer aussi un code Conseiller Avicole ({ADVISOR_CONTACT.phoneDisplay})
+                </span>
+              </label>
+
               <button
                 type="submit"
                 disabled={isCreating}
@@ -624,6 +832,162 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
                 {isCreating ? 'Création en cours...' : 'Générer le Code & Créer sa Page'}
               </button>
             </form>
+          )}
+        </div>
+
+        {/* Dedicated Advisor Access Codes Section (+226 74 36 60 51) */}
+        <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowAdvisorPanel(!showAdvisorPanel)}
+            className="w-full p-3.5 flex items-center justify-between text-left border-b border-slate-800"
+          >
+            <div className="flex items-center gap-2">
+              <Headset className="w-4 h-4 text-emerald-400" />
+              <div>
+                <span className="font-bold text-sm text-white block">
+                  Codes Conseiller du Domaine ({ADVISOR_CONTACT.phoneDisplay})
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  {advisorCodes.filter((c) => c.status === 'active').length} codes actifs pour débloquer l'appel & WhatsApp
+                </span>
+              </div>
+            </div>
+            <span className="text-xs text-slate-400">
+              {showAdvisorPanel ? 'Masquer' : 'Ouvrir'}
+            </span>
+          </button>
+
+          {showAdvisorPanel && (
+            <div className="p-4 space-y-3">
+              <form
+                onSubmit={handleCreateStandaloneAdvisorCode}
+                className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-2.5"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={advLabel}
+                    onChange={(e) => setAdvLabel(e.target.value)}
+                    placeholder="Libellé (ex : Urgence lot Bouaké)"
+                    className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-600"
+                  />
+                  <input
+                    type="text"
+                    value={advFarmerName}
+                    onChange={(e) => setAdvFarmerName(e.target.value)}
+                    placeholder="Nom éleveur (optionnel)"
+                    className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-600"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="tel"
+                    value={advPhone}
+                    onChange={(e) => setAdvPhone(e.target.value)}
+                    placeholder="Téléphone WhatsApp"
+                    className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-xs text-white focus:outline-none focus:border-emerald-600"
+                  />
+                  <input
+                    type="text"
+                    value={advCustomCode}
+                    onChange={(e) => setAdvCustomCode(e.target.value.toUpperCase())}
+                    placeholder="Code auto (FF-CONS-...)"
+                    className="px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-xs font-mono uppercase text-white focus:outline-none focus:border-emerald-600"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isCreatingAdvCode}
+                  className="w-full py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition disabled:opacity-50"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  {isCreatingAdvCode ? 'Génération...' : 'Générer un Code Conseiller'}
+                </button>
+              </form>
+
+              {advisorCodes.length === 0 ? (
+                <p className="text-xs text-slate-500 text-center py-2">
+                  Aucun code Conseiller généré pour le moment.
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                  {advisorCodes.map((rec) => (
+                    <div
+                      key={rec.id}
+                      className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-between gap-2 flex-wrap"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-xs text-emerald-400">
+                            {rec.code}
+                          </span>
+                          <span
+                            className={`text-[10px] font-semibold ${
+                              rec.status === 'active' ? 'text-emerald-400' : 'text-amber-400'
+                            }`}
+                          >
+                            {rec.status === 'active' ? 'Actif' : 'Révoqué'}
+                          </span>
+                          <span className="text-[10px] text-slate-500 tabular-nums">
+                            • {rec.usedCount || 0} util.
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 truncate">
+                          {rec.label}
+                          {rec.farmerName ? ` · ${rec.farmerName}` : ''}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyText(rec.id, rec.code)}
+                          className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 flex items-center gap-1"
+                        >
+                          {copiedAdvisorId === rec.id ? (
+                            <Check className="w-3 h-3 text-emerald-400" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                          <span>Copier</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSendAdvisorCodeWhatsApp(rec.code, rec.farmerName, rec.phone)
+                          }
+                          className="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-[11px] font-semibold text-white flex items-center gap-1"
+                        >
+                          <Send className="w-3 h-3" />
+                          <span>WA</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleAdvisorCode(rec)}
+                          title={rec.status === 'active' ? 'Révoquer' : 'Réactiver'}
+                          className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                        >
+                          {rec.status === 'active' ? (
+                            <PauseCircle className="w-3 h-3 text-amber-400" />
+                          ) : (
+                            <PlayCircle className="w-3 h-3 text-emerald-400" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteAdvisorCode(rec.id)}
+                          title="Supprimer"
+                          className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-red-400 border border-slate-700"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -777,6 +1141,86 @@ export const SuperAdminConsole: React.FC<SuperAdminConsoleProps> = ({
                           <Send className="w-3.5 h-3.5" />
                           <span>WhatsApp</span>
                         </button>
+                      </div>
+                    </div>
+
+                    {/* Account Advisor Option Bar */}
+                    <div className="px-2.5 py-2 rounded-lg bg-slate-950/70 border border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Headset className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <div className="min-w-0">
+                          <span className="text-[10px] text-slate-400 block">
+                            Option Conseiller ({ADVISOR_CONTACT.phoneDisplay})
+                          </span>
+                          {acc.advisorCode ? (
+                            <span className="font-mono font-bold text-xs text-white">
+                              {acc.advisorCode}{' '}
+                              <span
+                                className={`font-sans text-[10px] ${
+                                  acc.advisorAccessEnabled ? 'text-emerald-400' : 'text-amber-400'
+                                }`}
+                              >
+                                • {acc.advisorAccessEnabled ? 'Activé' : 'Désactivé'}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-500">Aucun code attribué</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {acc.advisorCode ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyText(`acc-${acc.id}`, acc.advisorCode || '')}
+                              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 flex items-center gap-1"
+                            >
+                              {copiedAdvisorId === `acc-${acc.id}` ? (
+                                <Check className="w-3 h-3 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                              <span>Copier</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSendAdvisorCodeWhatsApp(
+                                  acc.advisorCode || '',
+                                  acc.farmerName,
+                                  acc.phone
+                                )
+                              }
+                              className="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-[11px] font-semibold text-white flex items-center gap-1"
+                            >
+                              <Send className="w-3 h-3" />
+                              <span>Envoyer</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleAccountAdvisorAction(
+                                  acc,
+                                  acc.advisorAccessEnabled ? 'disable' : 'enable'
+                                )
+                              }
+                              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] text-slate-300"
+                            >
+                              {acc.advisorAccessEnabled ? 'Couper' : 'Activer'}
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleAccountAdvisorAction(acc, 'generate')}
+                            className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[11px] font-semibold text-emerald-300 flex items-center gap-1"
+                          >
+                            <KeyRound className="w-3 h-3" />
+                            <span>Générer Code Conseiller</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 

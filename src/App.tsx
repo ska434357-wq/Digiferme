@@ -43,7 +43,44 @@ export default function App() {
   const themeMode = usePoultryStore((state) => state.themeMode);
 
   const [isAdminPinOpen, setIsAdminPinOpen] = useState<boolean>(false);
-  const [isAdminConsoleOpen, setIsAdminConsoleOpen] = useState<boolean>(false);
+  const [isAdminConsoleOpen, setIsAdminConsoleOpen] = useState<boolean>(() => {
+    try {
+      return window.sessionStorage.getItem('fermefacile-admin-open-v1') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  // Sync admin console open state with sessionStorage
+  useEffect(() => {
+    try {
+      if (isAdminConsoleOpen && adminToken) {
+        window.sessionStorage.setItem('fermefacile-admin-open-v1', '1');
+      } else {
+        window.sessionStorage.removeItem('fermefacile-admin-open-v1');
+      }
+    } catch {
+      // Ignore storage restrictions
+    }
+  }, [isAdminConsoleOpen, adminToken]);
+
+  // Support direct ?admin=1 or #admin link to open the Super Admin PIN modal
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const wantsAdmin = params.get('admin') === '1' || window.location.hash === '#admin';
+      if (wantsAdmin) {
+        if (adminToken) {
+          setIsAdminConsoleOpen(true);
+        } else {
+          setIsAdminPinOpen(true);
+        }
+      }
+    } catch {
+      // Ignore URL errors
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Sync theme mode with document body for high-visibility sunlight mode
   useEffect(() => {
@@ -128,9 +165,17 @@ export default function App() {
           adminToken={adminToken}
           onExitAdmin={() => setIsAdminConsoleOpen(false)}
           onOpenUserPage={handleOpenUserPageFromAdmin}
+          onRequestReauth={() => {
+            setAdminToken(null);
+            setIsAdminConsoleOpen(false);
+            setIsAdminPinOpen(true);
+          }}
         />
       ) : !currentUser ? (
-        <SaaSLoginScreen onOpenAdminPin={() => setIsAdminPinOpen(true)} />
+        <SaaSLoginScreen
+          onOpenAdminPin={() => setIsAdminPinOpen(true)}
+          onAdminPinSuccess={handleAdminPinSuccess}
+        />
       ) : (
         <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans transition-colors duration-200">
           {/* Admin Preview Banner if inspecting a user's isolated page */}
@@ -245,6 +290,7 @@ export default function App() {
             isOpen={isSettingsModalOpen}
             onClose={() => setIsSettingsModalOpen(false)}
             onOpenUserPage={() => setCurrentTab('mypage')}
+            onOpenAdminPin={() => setIsAdminPinOpen(true)}
           />
         </div>
       )}

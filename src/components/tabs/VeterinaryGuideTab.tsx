@@ -1,6 +1,7 @@
 import React from 'react';
 import { Volume2, Sparkles } from 'lucide-react';
 import { speakMessage } from '../../utils/audioSpeech';
+import { AdvisorContactCard } from '../AdvisorContactCard';
 
 interface VeterinaryGuideTabProps {
   onOpenMobileMoneyModal: () => void;
@@ -94,6 +95,9 @@ export const VeterinaryGuideTab: React.FC<VeterinaryGuideTabProps> = ({ onOpenMo
           </button>
         </div>
       </div>
+
+      {/* Conseiller du Domaine (Appel & WhatsApp par code Super Admin) */}
+      <AdvisorContactCard />
 
       {/* Droppings Guide */}
       <div className="space-y-2">

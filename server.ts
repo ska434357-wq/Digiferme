@@ -24,6 +24,22 @@ interface SaaSUserAccount {
   createdAtMs: number;
   expiresAtMs: number;
   lastLoginAtMs?: number;
+  advisorAccessEnabled?: boolean;
+  advisorCode?: string;
+}
+
+interface AdvisorCodeRecord {
+  id: string;
+  code: string;
+  label: string;
+  userId?: string;
+  farmerName?: string;
+  phone?: string;
+  status: 'active' | 'revoked';
+  createdAtMs: number;
+  usedCount: number;
+  lastUsedAtMs?: number;
+  lastUsedByUserId?: string;
 }
 
 interface WorkspacePayload {
@@ -48,12 +64,15 @@ interface WorkspacePayload {
   heatAlertThreshold: number;
   currentSimulatedTemp: number;
   themeMode: 'dark' | 'light';
+  advisorUnlocked?: boolean;
+  advisorUnlockCode?: string;
   updatedAtMs: number;
 }
 
 interface SaaSDatabase {
   accounts: SaaSUserAccount[];
   workspaces: Record<string, WorkspacePayload>;
+  advisorCodes: AdvisorCodeRecord[];
 }
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -61,6 +80,8 @@ const SUPER_ADMIN_PIN = '761278';
 const TOKEN_SECRET = process.env.SESSION_SECRET || 'fermefacile-avicole-saas-2026-secret';
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'saas-db.json');
+const ADVISOR_PHONE_DISPLAY = '+226 74 36 60 51';
+const ADVISOR_WHATSAPP_DIGITS = '22674366051';
 
 const PLAN_CONFIG: Record<SubscriptionPlan, { days: number; defaultAmountFCFA: number; prefix: string }> = {
   mensuel: { days: 30, defaultAmountFCFA: 5000, prefix: 'MENS' },
@@ -91,6 +112,7 @@ function createEmptyWorkspace(country: WestAfricanCountry): WorkspacePayload {
     heatAlertThreshold: 35,
     currentSimulatedTemp: 34,
     themeMode: 'dark',
+    advisorUnlocked: false,
     updatedAtMs: Date.now(),
   };
 }
@@ -215,6 +237,7 @@ function ensureDatabase(): SaaSDatabase {
         [user1Id]: createStarterDemoWorkspace('CI', 'Ferme Espoir Bouaké'),
         [user2Id]: createStarterDemoWorkspace('SN', 'Aviculture Thiès'),
       },
+      advisorCodes: [],
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(seed, null, 2), 'utf8');
     return seed;
@@ -222,13 +245,14 @@ function ensureDatabase(): SaaSDatabase {
 
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf8');
-    const parsed = JSON.parse(raw) as SaaSDatabase;
+    const parsed = JSON.parse(raw) as Partial<SaaSDatabase>;
     return {
       accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [],
       workspaces: parsed.workspaces && typeof parsed.workspaces === 'object' ? parsed.workspaces : {},
+      advisorCodes: Array.isArray(parsed.advisorCodes) ? parsed.advisorCodes : [],
     };
   } catch {
-    return { accounts: [], workspaces: {} };
+    return { accounts: [], workspaces: {}, advisorCodes: [] };
   }
 }
 
@@ -281,6 +305,28 @@ function generateAccessCode(plan: SubscriptionPlan, existingCodes: Set<string>):
     }
   }
   return `FF-${prefix}-${Date.now().toString().slice(-5)}`;
+}
+
+function collectAllAdvisorCodes(dbData: SaaSDatabase): Set<string> {
+  const set = new Set<string>();
+  for (const rec of dbData.advisorCodes) {
+    if (rec.code) set.add(rec.code.toUpperCase());
+  }
+  for (const acc of dbData.accounts) {
+    if (acc.advisorCode) set.add(acc.advisorCode.toUpperCase());
+  }
+  return set;
+}
+
+function generateAdvisorCode(existingCodes: Set<string>): string {
+  for (let i = 0; i < 30; i++) {
+    const suffix = crypto.randomInt(1000, 9999);
+    const candidate = `FF-CONS-${suffix}`;
+    if (!existingCodes.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `FF-CONS-${Date.now().toString().slice(-5)}`;
 }
 
 function isValidPin(pin: string): boolean {
@@ -378,6 +424,10 @@ async function startServer() {
       : planInfo.defaultAmountFCFA;
     const userId = `user-${now}-${crypto.randomBytes(2).toString('hex')}`;
 
+    const includeAdvisorCode = Boolean(body.includeAdvisorCode);
+    const existingAdvCodes = collectAllAdvisorCodes(dbData);
+    const advisorCode = includeAdvisorCode ? generateAdvisorCode(existingAdvCodes) : undefined;
+
     const newAccount: SaaSUserAccount = {
       id: userId,
       code,
@@ -392,7 +442,23 @@ async function startServer() {
       durationDays: planInfo.days,
       createdAtMs: now,
       expiresAtMs: now + planInfo.days * 86400000,
+      advisorAccessEnabled: includeAdvisorCode,
+      advisorCode,
     };
+
+    if (includeAdvisorCode && advisorCode) {
+      dbData.advisorCodes.unshift({
+        id: `adv-${now}-${crypto.randomBytes(2).toString('hex')}`,
+        code: advisorCode,
+        label: `Conseiller - ${farmName}`,
+        userId,
+        farmerName,
+        phone,
+        status: 'active',
+        createdAtMs: now,
+        usedCount: 0,
+      });
+    }
 
     const seedDemo = Boolean(body.seedDemo);
     dbData.accounts.unshift(newAccount);
@@ -404,7 +470,7 @@ async function startServer() {
     res.status(201).json({ account: newAccount });
   });
 
-  // 4. Super Admin: Renew / Suspend / Reactivate / Update account
+  // 4. Super Admin: Renew / Suspend / Reactivate / Update account (including Advisor option)
   app.patch('/api/admin/codes/:id', requireAdmin, (req, res) => {
     const id = req.params.id;
     const body = req.body || {};
@@ -446,9 +512,47 @@ async function startServer() {
       updated.phone = body.phone.trim();
     }
 
+    if (body.generateAdvisorCode === true || body.advisorAccessEnabled === true) {
+      updated.advisorAccessEnabled = true;
+      if (!updated.advisorCode || body.generateAdvisorCode === true) {
+        const nextCode = generateAdvisorCode(collectAllAdvisorCodes(dbData));
+        updated.advisorCode = nextCode;
+        dbData.advisorCodes.unshift({
+          id: `adv-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+          code: nextCode,
+          label: `Conseiller - ${updated.farmName}`,
+          userId: updated.id,
+          farmerName: updated.farmerName,
+          phone: updated.phone,
+          status: 'active',
+          createdAtMs: Date.now(),
+          usedCount: 0,
+        });
+      } else {
+        // Reactivate existing matching advisor code record if present
+        dbData.advisorCodes = dbData.advisorCodes.map((rec) =>
+          rec.code.toUpperCase() === updated.advisorCode?.toUpperCase()
+            ? { ...rec, status: 'active' }
+            : rec
+        );
+      }
+    } else if (body.advisorAccessEnabled === false) {
+      updated.advisorAccessEnabled = false;
+      if (updated.advisorCode) {
+        const revCode = updated.advisorCode.toUpperCase();
+        dbData.advisorCodes = dbData.advisorCodes.map((rec) =>
+          rec.code.toUpperCase() === revCode ? { ...rec, status: 'revoked' } : rec
+        );
+        if (dbData.workspaces[updated.id]?.advisorUnlockCode?.toUpperCase() === revCode) {
+          dbData.workspaces[updated.id].advisorUnlocked = false;
+          dbData.workspaces[updated.id].updatedAtMs = Date.now();
+        }
+      }
+    }
+
     dbData.accounts[idx] = updated;
     saveDatabase(dbData);
-    res.json({ account: withEffectiveStatus(updated) });
+    res.json({ account: withEffectiveStatus(updated), advisorCodes: dbData.advisorCodes });
   });
 
   // 5. Super Admin: Delete user account & workspace
@@ -477,6 +581,220 @@ async function startServer() {
     }
     const workspace = dbData.workspaces[userId] || createEmptyWorkspace(account.country);
     res.json({ account: withEffectiveStatus(account), workspace });
+  });
+
+  // 6b. Super Admin: Advisor Access Codes (+226 74 36 60 51)
+  app.get('/api/admin/advisor-codes', requireAdmin, (_req, res) => {
+    const dbData = ensureDatabase();
+    res.json({
+      advisorCodes: dbData.advisorCodes,
+      advisorContact: {
+        phoneDisplay: ADVISOR_PHONE_DISPLAY,
+        whatsappDigits: ADVISOR_WHATSAPP_DIGITS,
+      },
+    });
+  });
+
+  app.post('/api/admin/advisor-codes', requireAdmin, (req, res) => {
+    const body = req.body || {};
+    const dbData = ensureDatabase();
+    const existing = collectAllAdvisorCodes(dbData);
+
+    let code = String(body.customCode || '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9-]/g, '')
+      .trim();
+
+    if (!code) {
+      code = generateAdvisorCode(existing);
+    } else if (code.length < 4) {
+      res.status(400).json({ error: 'Le code Conseiller doit contenir au moins 4 caractères.' });
+      return;
+    } else if (existing.has(code)) {
+      res.status(409).json({ error: `Le code Conseiller ${code} existe déjà.` });
+      return;
+    }
+
+    const userId = typeof body.userId === 'string' && body.userId.trim() ? body.userId.trim() : undefined;
+    const linkedAccount = userId ? dbData.accounts.find((a) => a.id === userId) : undefined;
+
+    const record: AdvisorCodeRecord = {
+      id: `adv-${Date.now()}-${crypto.randomBytes(2).toString('hex')}`,
+      code,
+      label:
+        String(body.label || '').trim() ||
+        (linkedAccount ? `Conseiller - ${linkedAccount.farmName}` : 'Code Conseiller Avicole'),
+      userId: linkedAccount?.id,
+      farmerName: String(body.farmerName || '').trim() || linkedAccount?.farmerName,
+      phone: String(body.phone || '').trim() || linkedAccount?.phone,
+      status: 'active',
+      createdAtMs: Date.now(),
+      usedCount: 0,
+    };
+
+    if (linkedAccount) {
+      linkedAccount.advisorAccessEnabled = true;
+      linkedAccount.advisorCode = code;
+    }
+
+    dbData.advisorCodes.unshift(record);
+    saveDatabase(dbData);
+    res.status(201).json({
+      advisorCode: record,
+      account: linkedAccount ? withEffectiveStatus(linkedAccount) : undefined,
+    });
+  });
+
+  app.patch('/api/admin/advisor-codes/:id', requireAdmin, (req, res) => {
+    const id = req.params.id;
+    const body = req.body || {};
+    const dbData = ensureDatabase();
+    const idx = dbData.advisorCodes.findIndex((c) => c.id === id);
+
+    if (idx === -1) {
+      res.status(404).json({ error: 'Code Conseiller introuvable.' });
+      return;
+    }
+
+    const current = dbData.advisorCodes[idx];
+    const nextStatus: 'active' | 'revoked' =
+      body.status === 'active' || body.status === 'revoked'
+        ? body.status
+        : current.status === 'active'
+        ? 'revoked'
+        : 'active';
+
+    dbData.advisorCodes[idx] = { ...current, status: nextStatus };
+
+    if (current.userId) {
+      const acc = dbData.accounts.find((a) => a.id === current.userId);
+      if (acc && acc.advisorCode?.toUpperCase() === current.code.toUpperCase()) {
+        acc.advisorAccessEnabled = nextStatus === 'active';
+      }
+    }
+
+    if (nextStatus === 'revoked') {
+      const revCode = current.code.toUpperCase();
+      for (const wsId of Object.keys(dbData.workspaces)) {
+        if (dbData.workspaces[wsId]?.advisorUnlockCode?.toUpperCase() === revCode) {
+          dbData.workspaces[wsId].advisorUnlocked = false;
+          dbData.workspaces[wsId].updatedAtMs = Date.now();
+        }
+      }
+    }
+
+    saveDatabase(dbData);
+    res.json({ advisorCode: dbData.advisorCodes[idx] });
+  });
+
+  app.delete('/api/admin/advisor-codes/:id', requireAdmin, (req, res) => {
+    const id = req.params.id;
+    const dbData = ensureDatabase();
+    const target = dbData.advisorCodes.find((c) => c.id === id);
+    if (!target) {
+      res.status(404).json({ error: 'Code Conseiller introuvable.' });
+      return;
+    }
+
+    dbData.advisorCodes = dbData.advisorCodes.filter((c) => c.id !== id);
+    if (target.userId) {
+      const acc = dbData.accounts.find((a) => a.id === target.userId);
+      if (acc && acc.advisorCode?.toUpperCase() === target.code.toUpperCase()) {
+        acc.advisorAccessEnabled = false;
+        acc.advisorCode = undefined;
+      }
+    }
+
+    const delCode = target.code.toUpperCase();
+    for (const wsId of Object.keys(dbData.workspaces)) {
+      if (dbData.workspaces[wsId]?.advisorUnlockCode?.toUpperCase() === delCode) {
+        dbData.workspaces[wsId].advisorUnlocked = false;
+        dbData.workspaces[wsId].advisorUnlockCode = undefined;
+        dbData.workspaces[wsId].updatedAtMs = Date.now();
+      }
+    }
+
+    saveDatabase(dbData);
+    res.json({ deleted: true });
+  });
+
+  // 6c. Farmer: Unlock Domain Advisor Option (+226 74 36 60 51) with Super Admin Code
+  app.post('/api/advisor/unlock', (req, res) => {
+    const rawCode = typeof req.body?.code === 'string' ? req.body.code : '';
+    const userId = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
+    const accessCode = String(req.header('x-access-code') || '').toUpperCase().trim();
+    const normalized = rawCode.toUpperCase().trim();
+
+    if (!normalized) {
+      res.status(400).json({ error: 'Veuillez entrer le code transmis par le Super Admin.' });
+      return;
+    }
+
+    const dbData = ensureDatabase();
+    const advIdx = dbData.advisorCodes.findIndex((c) => c.code.toUpperCase() === normalized);
+
+    if (advIdx !== -1) {
+      const rec = dbData.advisorCodes[advIdx];
+      if (rec.status === 'revoked') {
+        res.status(403).json({
+          error: 'Ce code Conseiller a été désactivé par le Super Admin.',
+        });
+        return;
+      }
+      if (rec.userId && userId && rec.userId !== userId) {
+        res.status(403).json({
+          error: 'Ce code Conseiller est réservé à une autre ferme.',
+        });
+        return;
+      }
+
+      dbData.advisorCodes[advIdx] = {
+        ...rec,
+        usedCount: (rec.usedCount || 0) + 1,
+        lastUsedAtMs: Date.now(),
+        lastUsedByUserId: userId || rec.lastUsedByUserId,
+      };
+    } else {
+      // Fallback check on account-level advisorCode
+      const accMatch = dbData.accounts.find(
+        (a) => a.advisorCode && a.advisorCode.toUpperCase() === normalized
+      );
+      if (!accMatch) {
+        res.status(404).json({
+          error: 'Code Conseiller invalide. Vérifiez le code transmis par le Super Admin.',
+        });
+        return;
+      }
+      if (!accMatch.advisorAccessEnabled) {
+        res.status(403).json({
+          error: 'Option Conseiller désactivée par le Super Admin pour ce code.',
+        });
+        return;
+      }
+      if (userId && accMatch.id !== userId) {
+        res.status(403).json({
+          error: 'Ce code Conseiller est rattaché à un autre compte éleveur.',
+        });
+        return;
+      }
+    }
+
+    if (userId && dbData.workspaces[userId]) {
+      const account = dbData.accounts.find((a) => a.id === userId);
+      if (account && (!accessCode || account.code.toUpperCase() === accessCode)) {
+        dbData.workspaces[userId].advisorUnlocked = true;
+        dbData.workspaces[userId].advisorUnlockCode = normalized;
+        dbData.workspaces[userId].updatedAtMs = Date.now();
+      }
+    }
+
+    saveDatabase(dbData);
+    res.json({
+      unlocked: true,
+      code: normalized,
+      advisorPhone: ADVISOR_PHONE_DISPLAY,
+      advisorWhatsApp: ADVISOR_WHATSAPP_DIGITS,
+    });
   });
 
   // 7. User SaaS Login via Access Code
@@ -612,6 +930,14 @@ async function startServer() {
           ? incoming.currentSimulatedTemp
           : existingWs.currentSimulatedTemp,
       themeMode: incoming.themeMode === 'light' || incoming.themeMode === 'dark' ? incoming.themeMode : existingWs.themeMode,
+      advisorUnlocked:
+        typeof incoming.advisorUnlocked === 'boolean'
+          ? incoming.advisorUnlocked
+          : Boolean(existingWs.advisorUnlocked),
+      advisorUnlockCode:
+        typeof incoming.advisorUnlockCode === 'string'
+          ? incoming.advisorUnlockCode
+          : existingWs.advisorUnlockCode,
       updatedAtMs: Date.now(),
     };
 

@@ -1,10 +1,10 @@
 import { useRef, useCallback } from 'react';
 
 /**
- * Detects 3 consecutive clicks/taps within a short time window (700ms).
+ * Detects 3 consecutive clicks/taps within a short time window (1200ms).
  * Works reliably on both desktop mouse clicks and mobile touchscreens.
  */
-export function useTripleTap(onTripleTap: () => void, windowMs = 700) {
+export function useTripleTap(onTripleTap: () => void, windowMs = 1200) {
   const tapTimestampsRef = useRef<number[]>([]);
 
   const handleTap = useCallback(() => {

@@ -6,6 +6,7 @@ import { HeatAlertWidget } from '../HeatAlertWidget';
 import { StatsCards } from '../StatsCards';
 import { BigActionButtons } from '../BigActionButtons';
 import { WeightGrowthChart } from '../WeightGrowthChart';
+import { AdvisorContactCard } from '../AdvisorContactCard';
 import { Syringe, Share2, CheckCircle2, ChevronRight, ArrowUpRight, User, Plus, Sparkles } from 'lucide-react';
 
 interface DashboardTabProps {
@@ -214,6 +215,9 @@ Prochain vaccin : ${upcomingVaccine?.name || '-'} (Jour ${upcomingVaccine?.day |
           <ArrowUpRight className="w-3 h-3 text-slate-400" />
         </button>
       </div>
+
+      {/* 7. Conseiller du Domaine Quick Access */}
+      <AdvisorContactCard compact onNavigateToFull={() => onSelectTab('guide')} />
     </div>
   );
 };

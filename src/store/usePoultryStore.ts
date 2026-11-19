@@ -15,7 +15,32 @@ import { syncWorkspaceToFirestore } from '../services/cloudSyncService';
 import { auth } from '../lib/firebase';
 
 const SESSION_STORAGE_KEY = 'fermefacile-active-session-v1';
+const ADMIN_TOKEN_STORAGE_KEY = 'fermefacile-admin-token-v1';
 const workspaceStorageKey = (userId: string) => `fermefacile-ws-${userId}`;
+
+function safeGetSessionItem(key: string): string | null {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeSetSessionItem(key: string, value: string): void {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Ignore storage quota or iframe restrictions
+  }
+}
+
+function safeRemoveSessionItem(key: string): void {
+  try {
+    window.sessionStorage.removeItem(key);
+  } catch {
+    // Ignore storage restrictions
+  }
+}
 
 function safeGetItem(key: string): string | null {
   try {
@@ -163,6 +188,8 @@ interface PoultryState {
   heatAlertThreshold: number;
   currentSimulatedTemp: number;
   themeMode: 'dark' | 'light';
+  advisorUnlocked: boolean;
+  advisorUnlockCode: string | null;
 
   // SaaS Session Actions
   loadUserSession: (
@@ -173,6 +200,10 @@ interface PoultryState {
   setAdminToken: (token: string | null) => void;
   updateCurrentUserAccount: (account: SaaSUserAccount) => void;
   logoutUser: () => void;
+
+  // Advisor Access Action
+  unlockAdvisorAccess: (code: string) => Promise<{ ok: boolean; error?: string }>;
+  lockAdvisorAccess: () => void;
 
   // Farm Actions
   setThemeMode: (mode: 'dark' | 'light') => void;
@@ -210,6 +241,8 @@ function extractSnapshot(state: PoultryState): UserWorkspaceSnapshot {
     heatAlertThreshold: state.heatAlertThreshold,
     currentSimulatedTemp: state.currentSimulatedTemp,
     themeMode: state.themeMode,
+    advisorUnlocked: state.advisorUnlocked,
+    advisorUnlockCode: state.advisorUnlockCode || undefined,
     updatedAtMs: Date.now(),
   };
 }
@@ -290,6 +323,8 @@ function getBootState(): {
     heatAlertThreshold: 35,
     currentSimulatedTemp: 35,
     themeMode: 'dark',
+    advisorUnlocked: false,
+    advisorUnlockCode: undefined,
     updatedAtMs: 0,
   };
 
@@ -334,6 +369,8 @@ function getBootState(): {
               ? { ...DEFAULT_FEED_STOCK, ...parsedWs.feedStock }
               : DEFAULT_FEED_STOCK,
           themeMode: parsedWs.themeMode === 'light' ? 'light' : 'dark',
+          advisorUnlocked: Boolean(parsedWs.advisorUnlocked),
+          advisorUnlockCode: typeof parsedWs.advisorUnlockCode === 'string' ? parsedWs.advisorUnlockCode : undefined,
         },
       };
     }
@@ -352,7 +389,7 @@ const BOOT = getBootState();
 
 export const usePoultryStore = create<PoultryState>((set, get) => ({
   currentUser: BOOT.currentUser,
-  adminToken: null,
+  adminToken: safeGetSessionItem(ADMIN_TOKEN_STORAGE_KEY),
   isAdminPreview: BOOT.isAdminPreview,
   batches: BOOT.workspace.batches,
   activeBatchId: BOOT.workspace.activeBatchId,
@@ -367,8 +404,17 @@ export const usePoultryStore = create<PoultryState>((set, get) => ({
   heatAlertThreshold: BOOT.workspace.heatAlertThreshold,
   currentSimulatedTemp: BOOT.workspace.currentSimulatedTemp,
   themeMode: BOOT.workspace.themeMode,
+  advisorUnlocked: Boolean(BOOT.workspace.advisorUnlocked),
+  advisorUnlockCode: BOOT.workspace.advisorUnlockCode || null,
 
-  setAdminToken: (token) => set({ adminToken: token }),
+  setAdminToken: (token) => {
+    if (token) {
+      safeSetSessionItem(ADMIN_TOKEN_STORAGE_KEY, token);
+    } else {
+      safeRemoveSessionItem(ADMIN_TOKEN_STORAGE_KEY);
+    }
+    set({ adminToken: token });
+  },
 
   loadUserSession: (account, serverWorkspace, options) => {
     const isAdminPreview = Boolean(options?.isAdminPreview);
@@ -424,6 +470,9 @@ export const usePoultryStore = create<PoultryState>((set, get) => ({
       currentSimulatedTemp:
         typeof chosen.currentSimulatedTemp === 'number' ? chosen.currentSimulatedTemp : 35,
       themeMode: chosen.themeMode === 'light' ? 'light' : 'dark',
+      advisorUnlocked: Boolean(chosen.advisorUnlocked),
+      advisorUnlockCode:
+        typeof chosen.advisorUnlockCode === 'string' ? chosen.advisorUnlockCode : null,
       syncQueue: [],
       lastSyncTime: Date.now(),
     });
@@ -451,8 +500,74 @@ export const usePoultryStore = create<PoultryState>((set, get) => ({
       vaccineEvents: {},
       feedStock: DEFAULT_FEED_STOCK,
       cashFlow: [],
+      advisorUnlocked: false,
+      advisorUnlockCode: null,
       syncQueue: [],
     });
+  },
+
+  unlockAdvisorAccess: async (rawCode) => {
+    const normalized = rawCode.toUpperCase().trim();
+    if (!normalized) {
+      return { ok: false, error: 'Veuillez entrer le code transmis par le Super Admin.' };
+    }
+
+    const user = get().currentUser;
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (user?.code) {
+        headers['x-access-code'] = user.code;
+      }
+
+      const res = await fetch('/api/advisor/unlock', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          code: normalized,
+          userId: user?.id,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.unlocked) {
+        return {
+          ok: false,
+          error: data.error || 'Code Conseiller invalide. Contactez le Super Admin.',
+        };
+      }
+
+      set({
+        advisorUnlocked: true,
+        advisorUnlockCode: normalized,
+      });
+      persistUserWorkspace(get(), true);
+      return { ok: true };
+    } catch {
+      // Offline fallback: verify against account's assigned advisor code if available locally
+      if (
+        user?.advisorAccessEnabled &&
+        user.advisorCode &&
+        user.advisorCode.toUpperCase() === normalized
+      ) {
+        set({
+          advisorUnlocked: true,
+          advisorUnlockCode: normalized,
+        });
+        persistUserWorkspace(get(), false);
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        error: 'Connexion requise pour vérifier ce code Conseiller auprès du serveur.',
+      };
+    }
+  },
+
+  lockAdvisorAccess: () => {
+    set({ advisorUnlocked: false, advisorUnlockCode: null });
+    persistUserWorkspace(get(), true);
   },
 
   setActiveBatchId: (id) => {

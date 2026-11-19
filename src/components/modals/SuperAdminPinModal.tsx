@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Lock, Delete, ShieldCheck } from 'lucide-react';
 
 interface SuperAdminPinModalProps {
@@ -15,10 +15,12 @@ export const SuperAdminPinModal: React.FC<SuperAdminPinModalProps> = ({
   const [pin, setPin] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const verifyingRef = useRef<boolean>(false);
 
   const verifyPin = useCallback(
     async (candidatePin: string) => {
-      if (candidatePin.length !== 6) return;
+      if (candidatePin.length !== 6 || verifyingRef.current) return;
+      verifyingRef.current = true;
       setIsVerifying(true);
       setError('');
 
@@ -28,7 +30,7 @@ export const SuperAdminPinModal: React.FC<SuperAdminPinModalProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ pin: candidatePin }),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (res.ok && data.valid && data.adminToken) {
           setPin('');
           onSuccess(data.adminToken);
@@ -37,41 +39,41 @@ export const SuperAdminPinModal: React.FC<SuperAdminPinModalProps> = ({
           setPin('');
         }
       } catch {
-        setError('Impossible de vérifier le PIN hors connexion.');
+        setError('Impossible de vérifier le PIN. Vérifiez que le serveur est accessible.');
         setPin('');
       } finally {
+        verifyingRef.current = false;
         setIsVerifying(false);
       }
     },
     [onSuccess]
   );
 
-  const handleDigit = useCallback(
-    (digit: string) => {
-      if (isVerifying) return;
-      setError('');
-      setPin((prev) => {
-        if (prev.length >= 6) return prev;
-        const next = prev + digit;
-        if (next.length === 6) {
-          void verifyPin(next);
-        }
-        return next;
-      });
-    },
-    [isVerifying, verifyPin]
-  );
+  // Trigger verification cleanly outside state updaters when 6 digits are entered
+  useEffect(() => {
+    if (isOpen && pin.length === 6 && !verifyingRef.current) {
+      void verifyPin(pin);
+    }
+  }, [isOpen, pin, verifyPin]);
+
+  const handleDigit = useCallback((digit: string) => {
+    if (verifyingRef.current) return;
+    setError('');
+    setPin((prev) => (prev.length >= 6 ? prev : prev + digit));
+  }, []);
 
   const handleBackspace = useCallback(() => {
-    if (isVerifying) return;
+    if (verifyingRef.current) return;
     setError('');
     setPin((prev) => prev.slice(0, -1));
-  }, [isVerifying]);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
       setPin('');
       setError('');
+      verifyingRef.current = false;
+      setIsVerifying(false);
       return;
     }
 
@@ -85,8 +87,22 @@ export const SuperAdminPinModal: React.FC<SuperAdminPinModalProps> = ({
       }
     };
 
+    const onPaste = (e: ClipboardEvent) => {
+      const pasted = e.clipboardData?.getData('text') || '';
+      const digitsOnly = pasted.replace(/\D/g, '').slice(0, 6);
+      if (digitsOnly.length > 0) {
+        e.preventDefault();
+        setError('');
+        setPin(digitsOnly);
+      }
+    };
+
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('paste', onPaste);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('paste', onPaste);
+    };
   }, [isOpen, handleDigit, handleBackspace, onClose]);
 
   if (!isOpen) return null;
@@ -103,12 +119,15 @@ export const SuperAdminPinModal: React.FC<SuperAdminPinModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-sm text-white">Accès Super Admin</h3>
-              <p className="text-[11px] text-slate-400">Entrez le code PIN à 6 chiffres</p>
+              <p className="text-[11px] text-slate-400">
+                {isVerifying ? 'Vérification en cours...' : 'Entrez le code PIN à 6 chiffres'}
+              </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white touch-manipulation"
             aria-label="Fermer"
           >
             <X className="w-4 h-4" />
@@ -143,7 +162,7 @@ export const SuperAdminPinModal: React.FC<SuperAdminPinModalProps> = ({
               type="button"
               disabled={isVerifying}
               onClick={() => handleDigit(d)}
-              className="py-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition active:scale-95 disabled:opacity-50"
+              className="py-3 min-h-[48px] rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition active:scale-95 disabled:opacity-50 touch-manipulation select-none"
             >
               {d}
             </button>
@@ -151,8 +170,11 @@ export const SuperAdminPinModal: React.FC<SuperAdminPinModalProps> = ({
           <button
             type="button"
             disabled={isVerifying}
-            onClick={() => setPin('')}
-            className="py-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 font-semibold text-xs transition"
+            onClick={() => {
+              setError('');
+              setPin('');
+            }}
+            className="py-3 min-h-[48px] rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-400 font-semibold text-xs transition touch-manipulation select-none"
           >
             Effacer
           </button>
@@ -160,7 +182,7 @@ export const SuperAdminPinModal: React.FC<SuperAdminPinModalProps> = ({
             type="button"
             disabled={isVerifying}
             onClick={() => handleDigit('0')}
-            className="py-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition active:scale-95 disabled:opacity-50"
+            className="py-3 min-h-[48px] rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-white font-bold text-base transition active:scale-95 disabled:opacity-50 touch-manipulation select-none"
           >
             0
           </button>
@@ -168,7 +190,7 @@ export const SuperAdminPinModal: React.FC<SuperAdminPinModalProps> = ({
             type="button"
             disabled={isVerifying}
             onClick={handleBackspace}
-            className="py-3 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 flex items-center justify-center transition active:scale-95 disabled:opacity-50"
+            className="py-3 min-h-[48px] rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 flex items-center justify-center transition active:scale-95 disabled:opacity-50 touch-manipulation select-none"
             aria-label="Supprimer un chiffre"
           >
             <Delete className="w-4 h-4" />

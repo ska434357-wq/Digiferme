@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { auth } from '../../lib/firebase';
 import { signInWithGoogleCloud, syncWorkspaceToFirestore } from '../../services/cloudSyncService';
+import { AdvisorContactCard } from '../AdvisorContactCard';
 
 interface UserPageTabProps {
   onOpenNewBatchModal: () => void;
@@ -279,6 +280,9 @@ export const UserPageTab: React.FC<UserPageTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Conseiller du Domaine */}
+      <AdvisorContactCard compact onNavigateToFull={() => onSelectTab('guide')} />
 
       {/* Logout Button */}
       <button
