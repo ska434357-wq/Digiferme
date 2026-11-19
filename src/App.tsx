@@ -290,7 +290,6 @@ export default function App() {
             isOpen={isSettingsModalOpen}
             onClose={() => setIsSettingsModalOpen(false)}
             onOpenUserPage={() => setCurrentTab('mypage')}
-            onOpenAdminPin={() => setIsAdminPinOpen(true)}
           />
         </div>
       )}

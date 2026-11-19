@@ -7,7 +7,6 @@ import {
   Check,
   LogOut,
   User,
-  ShieldCheck,
 } from 'lucide-react';
 import { speakMessage } from '../../utils/audioSpeech';
 import { WestAfricanCountry } from '../../types';
@@ -16,14 +15,12 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenUserPage: () => void;
-  onOpenAdminPin: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   onOpenUserPage,
-  onOpenAdminPin,
 }) => {
   const currentUser = usePoultryStore((state) => state.currentUser);
   const themeMode = usePoultryStore((state) => state.themeMode);
@@ -242,38 +239,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         </div>
 
-        <div className="mt-4 space-y-2">
+        <div className="mt-4 flex gap-2">
           <button
             type="button"
             onClick={() => {
               onClose();
-              onOpenAdminPin();
+              logoutUser();
             }}
-            className="w-full py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-emerald-400 font-semibold text-xs flex items-center justify-center gap-1.5 transition"
+            className="flex-1 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-red-400 font-semibold text-xs flex items-center justify-center gap-1.5 transition"
           >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            Console Super Admin
+            <LogOut className="w-3.5 h-3.5" />
+            Déconnexion
           </button>
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                logoutUser();
-              }}
-              className="flex-1 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-800 text-red-400 font-semibold text-xs flex items-center justify-center gap-1.5 transition"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              Déconnexion
-            </button>
-            <button
-              onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs transition"
-            >
-              Fermer
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs transition"
+          >
+            Fermer
+          </button>
         </div>
       </div>
     </div>
